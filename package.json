@@ -1,0 +1,16 @@
+{
+  "name": "odh-interface",
+  "version": "1.0.0",
+  "description": "",
+  "main": "/home/linhai/Project-Mercury/projects/static/odh-interface/lib/main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "crowdcurio-client": "^0.1.0",
+    "jquery": "^3.3.1",
+    "jquery-ui-browserify": "^1.11.0-pre-seelio"
+  }
+}
