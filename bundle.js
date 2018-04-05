@@ -1,4 +1,4 @@
-(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+(function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
 (function (global){
 //  file:   main.js
 //  author: Linhai Yin
@@ -40,8 +40,6 @@ require('jquery-ui-browserify');
 
 
 $.widget('crowdcurio.ODHInterface', {
-    
-    
     
     options: {
         apiClient: undefined,
@@ -261,7 +259,7 @@ $.widget('crowdcurio.ODHInterface', {
     
 });
 
-},{"jquery":9,"jquery-ui-browserify":8}],3:[function(require,module,exports){
+},{"jquery":12,"jquery-ui-browserify":11}],3:[function(require,module,exports){
 var TaskRoutingManager = require('./task-router');
 var TaskSession = require('./task-session');
 var HelpRequest = require('./help-request');
@@ -282,7 +280,7 @@ function CrowdCurioClient(){
     this.user = null;
 }
 
-CrowdCurioClient.prototype.init = function(params){
+CrowdCurioClient.prototype.init = function(params, delay_connect){
     var that = this;
     return new Promise(function(resolve, reject) {
         // authenticate & instantiate the client's connection
@@ -319,25 +317,33 @@ CrowdCurioClient.prototype.init = function(params){
         }
 
         // if collaboration is active, create and initialize a task session and wait to resolve the promise until the task session has been initialized
-        console.log(params);
+        // Note: if collaboration is "delayed", then the interface needs to call
+        // client.task_session.connect() before using TaskSession features
         if(params['configuration']['collaboration']){
             if(params['configuration']['collaboration']['active']){
                 
                 if(params['configuration']['collaboration']['automatic']) {
                     that.task_session = new TaskSession();
-                    that.task_session.init(jQuery.extend({ 'client': that.client}, params)).then(function(){
+                    that.task_session.init(jQuery.extend({'client': that.client}, params)).then(function(){
+                        console.log(that.task_session.task_session);
+                        that.task_session.connect(that.task_session.task_session);
                         resolve();
                     });
                     
                 } else {
                
                     that.task_session = new TaskSession();
-                    that.task_session.init(jQuery.extend({ 'client': that.client}, params)).then(function(){
+                    that.task_session.init(jQuery.extend({'client': that.client}, params)).then(function(){
+
+                        console.log(that.task_session.task_session);
+                        that.task_session.connect(that.task_session.task_session);
                         resolve();
+
                     });
                     
                     that.help_request = new HelpRequest();
-                    that.help_request.init(jQuery.extend({ 'client': that.client, 'task_session': that.task_session}, params));
+                    that.help_request.init(jQuery.extend({"client":that, 'apiClient': that.client, 'task_session': that.task_session}, params));
+                    console.log("FML");
                 }
                 
             }
@@ -542,6 +548,21 @@ function xhttpRequest(path, message) {
     return xhttp;
 }
 
+function tab(id) {
+
+    document.getElementById("help-request-container").style.display = "none";
+    document.getElementById("help-request-button-container").style.display = "none";
+    document.getElementById("help-request-create-container").style.display = "none";
+    document.getElementById("help-request-resolve-container").style.display = "none";
+
+    if(id === "help-request-container") {
+        document.getElementById("help-request-container").style.display = "block";
+        document.getElementById("help-request-button-container").style.display = "block";
+    } else {
+        document.getElementById(id).style.display = "block";
+    }
+}
+
 
 HelpRequest.prototype.getFocus = function() {
     return this.focus
@@ -556,38 +577,152 @@ HelpRequest.prototype.setFocus = function(element) {
     this.focus = element;
 }
 
+HelpRequest.prototype.setFocusOnReply = function(helpRequest) {
+
+    return function(message) {
+        var data = message.payload.message;
+        helpRequest.focus = data;
+
+    }
+
+}
+
 // Create, CoreAPI?
-HelpRequest.prototype.createHelpRequest = function(params, callback) {
+HelpRequest.prototype.createHelpRequest = function(params) {
     var that = this;
+
+    var random = Math.floor(Math.random()*1000000);
     
     // make the task session
-    var channel_name = "t" + that.task.id + "e" + that.experiment.id + "u" + that.user.id + "r" + Math.floor(Math.random()*1000000);
+    var channel_name = "t" + that.task.id + "e" + that.experiment.id + "u" + that.user.id + "r" + random;
     that.task_session.create(channel_name).then((message) => {
-        
-        that.task_session.task_session = {id: message, type: "TaskSession"};
-        that.task_session.channel_name = channel_name;
-        that.task_session.id = message;
-        
-        // make the help request
-        params = jQuery.extend({
-            owner: that.user,
-            name: channel_name,
-            channel_name: channel_name,
-            task: that.task,
-            experiment: that.experiment,
-            condition: that.condition,
-            task_session: that.task_session.task_session,
-            focus: that.focus
-        }, params);
 
-        let action = ['helprequest', "create"];
-        this.client.action(schema, action, params).then(function(result) {
-            that.help_request=result;
-            callback(result);
+        // make the help request
+        console.log("creating help_request");
+        console.log({
+            "command": "odh_create",
+            "channel_name": channel_name,
+            "task_session": message,
+            "task": that.task.id,
+            "experiment": that.experiment.id,
+            "random": random,
+            "name": params["name"],
+            "summary": params["summary"],
+            "message": $("#chat-input-box").val().trim()
         });
-        
+        that.task_session.socket.send(JSON.stringify({
+            "command": "odh_create",
+            "channel_name": channel_name,
+            "task_session": message,
+            "task": that.task.id,
+            "experiment": that.experiment.id,
+            "random": random,
+            "name": params["name"],
+            "summary": params["summary"],
+            "message": $("#chat-input-box").val().trim()
+        }));
+
+        console.log(message);
+
     });
     
+}
+
+/**
+"text": json.dumps({
+            "msg_type": 30,
+            "payload": {
+                'task_session': str(ts.id),
+                'message': {
+                    "type": "HelpRequest",
+                    "help_request": {
+                        "id": hr.id,
+                        "task_session": {
+                            "id": ts.id,
+                            "channel_name": ts.channel_name
+                        }
+                    },
+                },
+                'username': message.user.username,
+            }
+        }),
+*/
+HelpRequest.prototype.CreateHelpRequestOnReply = function(helpRequest) {
+
+    return function(message) {
+
+        var data = message.payload.message;
+        console.log(message);
+
+        alert("ODH CREATED");
+        console.log("Finished Creating Help Request");
+
+        // Delete/leave old task request
+        console.log("Leaving old help Request");
+
+        helpRequest.task_session.socket.send(JSON.stringify({
+            "command": "leave",  // determines which handler will be used (see chat/routing.py)
+            "task_session": helpRequest.task_session.id,
+            "user": helpRequest.user.id,
+            "task": helpRequest.task.id,
+            'experiment': helpRequest.experiment.id,
+            'condition': helpRequest.condition.id,
+            "channel_name": helpRequest.task_session.channel_name
+
+        }));
+
+        helpRequest.task_session.socket.close(code=1000, reason="Changing session",{keepClosed: true});
+
+        var element = document.getElementById("chats");
+        element.outerHTML = "";
+        delete element;
+
+        // Join the Help Request by creating a new task session object
+
+        // create new task session
+        helpRequest.client.task_session = new TaskSession();
+        var params = {"user": helpRequest.user.id, "task": helpRequest.task.id};
+        if(helpRequest.experiment){
+            params = jQuery.extend({'experiment': helpRequest.experiment.id}, params);
+        }
+        if(helpRequest.condition){
+            params = jQuery.extend({'condition': helpRequest.condition.id}, params);
+        }
+
+        params = jQuery.extend({'client': helpRequest.apiClient}, params);
+
+        helpRequest.client.task_session.init(params).then(function(){
+            // update task session info
+            helpRequest.client.task_session.task_session = {id: data.help_request.task_session.id, type: "TaskSession"};
+            helpRequest.client.task_session.channel_name = data.help_request.task_session.channel_name;
+            helpRequest.client.task_session.id = data.help_request.task_session.id;
+
+
+            // update help request info
+            helpRequest.help_request = data.help_request;
+
+
+            // handle assigning handlers
+            handlers = {
+
+                "odhCreated": helpRequest.CreateHelpRequestOnReply(helpRequest),
+                "odhResolved": helpRequest.resolveOnReply(helpRequest),
+                "odhSetFocus": helpRequest.setFocusOnReply(helpRequest),
+
+            }
+
+            helpRequest.client.task_session.setListeners(handlers);
+
+            // connect
+            helpRequest.task_session = helpRequest.client.task_session;
+
+            console.log("Joining new Help Request")
+            helpRequest.task_session.connect(data.help_request.task_session.id);
+        });
+
+    }
+
+
 }
 
 // list, CoreAPI?
@@ -601,15 +736,16 @@ HelpRequest.prototype.createHelpRequest = function(params, callback) {
  */
 HelpRequest.prototype.list = function(params, callback) {
     var that = this;
-    
-    
+
     params = jQuery.extend({
         task: that.task.id,
         experiment: that.experiment.id,
-        condition: that.condition.id
+        resolved: false,
+
+
     }, params);
     let action = ['helprequest', "list"];
-    this.client.action(schema, action, params).then(function(result) {
+    this.apiClient.action(schema, action, params).then(function(result) {
         callback(result);
     });
 }
@@ -620,23 +756,60 @@ HelpRequest.prototype.list = function(params, callback) {
  * 
  * NOTE: make sure to set tasK_channel.channel_name
  * 
- * @param: help_request_id
+ * @param: help_request
  * 
  */
-HelpRequest.prototype.joinHelpRequest = function(task_session) {
+HelpRequest.prototype.joinHelpRequest = function(help_request, task_session, channel_name) {
     var that = this;
-    // TODO: let user use params to join a task_session
-    var resp = xhttpRequest('/onDemandHelp/' + that.help_request.id + "/", null);
-    console.log(resp);
-    if(task_session){
-        console.log("Joining Help Request: " + task_session);
-        that.task_session.id = task_session;
-        that.task_session.connect(task_session);
-    } else {
-        console.log("Joining task session: " + that.task_session.id);
-        that.task_session.connect(that.task_session.id)
+
+    // Leave old task Session
+    var element = document.getElementById("chats");
+    element.outerHTML = "";
+    delete element;
+    that.task_session.socket.close(code=1000, reason="Changing session",{keepClosed: true});
+
+    // Join the Help Request by creating a new task session object
+
+    // create new task session
+    that.client.task_session = new TaskSession();
+    var params = {"user": that.user.id, "task": that.task.id};
+    if(that.experiment){
+        params = jQuery.extend({'experiment': that.experiment.id}, params);
     }
-    that.focus = JSON.parse(resp.response).focus
+    if(that.condition){
+        params = jQuery.extend({'condition': that.condition.id}, params);
+    }
+
+    params = jQuery.extend({'client': that.apiClient}, params);
+
+    that.client.task_session.init(params).then(function(){
+        // update task session info
+        that.client.task_session.task_session = {id: task_session, type: "TaskSession"};
+        that.client.task_session.channel_name = channel_name;
+        that.client.task_session.id = task_session;
+
+
+        // update help request info
+        that.help_request = {id: help_request};
+
+        // handle assigning handlers
+        handlers = {
+
+            "odhCreated": that.CreateHelpRequestOnReply(that),
+            "odhResolved": that.resolveOnReply(that),
+            "odhSetFocus": that.setFocusOnReply(that),
+
+        }
+
+        that.client.task_session.setListeners(handlers);
+
+        // connect
+        that.task_session = that.client.task_session;
+
+        console.log("Joining new Help Request")
+        that.task_session.connect(task_session);
+    });
+
 }
 
 // Resolve, Core API?
@@ -646,18 +819,81 @@ HelpRequest.prototype.joinHelpRequest = function(task_session) {
  * Resolves the help Request
  * 
  */
-HelpRequest.prototype.resolveHelpRequest = function(callback) {
+HelpRequest.prototype.resolveHelpRequest = function(callback = null) {
     
     // make an ajax request because CoreAPI doesn't handle this
-    var xhttp;
-    xhttp=new XMLHttpRequest();
-    xhttp.open("POST", '/onDemandHelp/' + that.help_request.id + "/resolve/", false);
-    // TODO: setup proper csrf
-    // TODO: CSRF not working??????
-    xhttp.setRequestHeader('CSRFToken', getCookie(csrftoken)); 
-    xhttp.send().then(function(result) {
-        callback(result);
-    });
+    var that = this;
+    var params = {
+        "command": "odh_resolve",
+        "help_request": that.help_request.id,
+    }
+
+    console.log(params);
+
+    that.task_session.socket.send(JSON.stringify(params));
+    console.log("message sent");
+
+    if(callback) {
+        callback();
+    }
+
+}
+
+HelpRequest.prototype.resolveOnReply = function(helpRequest) {
+
+    return function(message) {
+
+        // get rid of old task session
+        var element = document.getElementById("chats");
+        element.outerHTML = "";
+        delete element;
+        helpRequest.task_session.socket.close(code=1000, reason="Changing session",{keepClosed: true});
+
+        // connect to original task session
+        helpRequest.client.task_session = new TaskSession();
+        var params = {"user": helpRequest.user.id, "task": helpRequest.task.id};
+        if(helpRequest.experiment){
+            params = jQuery.extend({'experiment': helpRequest.experiment.id}, params);
+        }
+        if(helpRequest.condition){
+            params = jQuery.extend({'condition': helpRequest.condition.id}, params);
+        }
+
+        params = jQuery.extend({'client': helpRequest.apiClient}, params);
+
+        helpRequest.client.task_session.init(params).then(function(){
+
+
+            // update task session info
+            helpRequest.client.task_session.task_session = {id: helpRequest.client.task_session.task_session, type: "TaskSession"};
+
+
+            // update help request info
+            helpRequest.help_request = {id: -1};
+
+            // handle assigning handlers
+            handlers = {
+
+                "odhCreated": helpRequest.CreateHelpRequestOnReply(helpRequest),
+                "odhResolved": helpRequest.resolveOnReply(helpRequest),
+                "odhSetFocus": helpRequest.setFocusOnReply(helpRequest),
+
+            }
+
+            helpRequest.client.task_session.setListeners(handlers);
+
+            // connect
+            helpRequest.task_session = helpRequest.client.task_session;
+
+            console.log(helpRequest.client.task_session.task_session.id);
+            helpRequest.task_session.connect(helpRequest.task_session.task_session.id);
+
+        });
+
+
+        helpRequest.needsResolving = false;
+    }
+
 }
 
 // Leave, Core API?
@@ -668,11 +904,10 @@ HelpRequest.prototype.leaveHelpRequest = function(callback) {
     var that = this;
     print("Disconnected from chat socket");
     that.task_session.socket.send(JSON.stringify({
-        "command": "leave",  // determines which handler will be used (see chat/routing.py)
+        "command": "odh_leave",  // determines which handler will be used (see chat/routing.py)
         "task_session": that.task_session.id,
         "task": that.task.id,
-        "experiment": that.experiment.id,
-        "condition": that.condition.id
+        "experiment": that.experiment.id
     }));
     console.log("cookies:" + document.cookie);
     console.log("csrf:" + getCookie("csrftoken"));
@@ -714,7 +949,8 @@ HelpRequest.prototype.init = function(params, callback) {
     document.getElementsByTagName('head')[0].appendChild(style);
 
     // Set up VARS
-    that.client = params['client']
+    that.apiClient = params['apiClient'];
+    that.client = params["client"];
     
     // get Task, Experiment, Condition info.
 
@@ -726,8 +962,8 @@ HelpRequest.prototype.init = function(params, callback) {
     } else {
         that.experiment = null;
     }
-    if(params['condition']){
-        that.condition = {id: params['condition'], type: 'Condition'}
+    if(params["condition"]) {
+        that.condition  = {id: params["condition"], type: "Condition"}
     } else {
         that.condition = null;
     }
@@ -741,6 +977,20 @@ HelpRequest.prototype.init = function(params, callback) {
         resolve();
     });
     */
+
+    that.help_request = {id: 0}
+
+    // handle assigning handlers
+    handlers = {
+
+        "odhCreated": that.CreateHelpRequestOnReply(that),
+        "odhResolved": that.resolveOnReply(that),
+        "odhSetFocus": that.setFocusOnReply(that),
+
+    }
+
+    that.task_session.setListeners(handlers);
+
     if(callback){
         callback(that);
     }
@@ -759,14 +1009,16 @@ HelpRequest.prototype.buildCore = function(element) {
         .attr('id', "help-request")
         .attr("class", "help-request-main")
         .appendTo(element);
-        
+
+    var moarDivs = $("<div>")
+        .appendTo(hr_container);
+
     // This container holds all of the help requests
     var request_container = $('<div>')
         .attr('id', "help-request-container")
         .attr("class", "help-request-container")
-        .appendTo(hr_container);
-        
-        
+        .appendTo(moarDivs);
+
     var request_container_js = document.getElementById('help-request-container');
     request_container_js.style.display = "none";
     request_container_js.style.overflow = "auto";
@@ -776,7 +1028,7 @@ HelpRequest.prototype.buildCore = function(element) {
     var button_container = $('<div>')
         .attr('id', "help-request-button-container")
         .attr('class', "help-request-button-container")
-        .appendTo(hr_container);
+        .appendTo(moarDivs);
         document.getElementById('help-request-button-container').style.display = "none";
 
     // Create button for making new requests
@@ -810,16 +1062,7 @@ HelpRequest.prototype.buildCore = function(element) {
         .attr("type", "text")
         .attr("id", "help-request-name")
         .appendTo(create_container);
-        
-    $("<a>")
-        .text("Summary")
-        .appendTo(create_container);
-        
-    var summaryForm = $("<input>")
-        .attr("type", "text")
-        .attr("id", "help-request-summary")
-        .appendTo(create_container);
-        
+
     var returnButton = $("<i>")
         .attr("id", "help-request-return-button")
         .attr("class", "fa fa-mail-reply")
@@ -829,9 +1072,22 @@ HelpRequest.prototype.buildCore = function(element) {
         .attr("id", "help-request-submit")
         .attr("class", "fa fa-sticky-note-o")
         .appendTo(create_container);
-        
-        
-    
+
+    // Create the resolve button container
+    console.log("Creating form for resolution acceptance")
+
+    var resolve_container = $('<div>')
+        .attr('id', "help-request-resolve-container")
+        .attr('class', "help-request-resolve-container center-align")
+        .appendTo(hr_container);
+    document.getElementById("help-request-resolve-container").style.display = "none";
+
+    var resolveButton = $("<a>")
+        .attr("type", "button")
+        .attr('class', "waves-effect waves-light btn help-request-resolve-button")
+        .text("Resolved")
+        .appendTo(resolve_container)
+
     // Setup scroll function
     request_container_js.addEventListener('scroll', function(event) {
         var element = event.target;
@@ -846,29 +1102,17 @@ HelpRequest.prototype.buildCore = function(element) {
     
     // Hides the list, and shows the create form
     create_new_button.click(function(){
-        
-        // Hide List
-        document.getElementById('help-request-container').style.display = "none";
-        document.getElementById('help-request-button-container').style.display = "none";
-        
-        // Show form
-        document.getElementById('help-request-create-container').style.display = "block";
+        tab('help-request-create-container');
     });
    
     // Submit creation
     submitCreate.click(function() {
         createAndJoinHR(that);
-        
     });
     
     // Return to the original list
     returnButton.click(function() {
-        // Hide List
-        document.getElementById('help-request-container').style.display = "block";
-        document.getElementById('help-request-button-container').style.display = "block";
-        
-        // Show form
-        document.getElementById('help-request-create-container').style.display = "none";
+        tab('help-request-container');
     });
     
     
@@ -881,6 +1125,12 @@ HelpRequest.prototype.buildCore = function(element) {
             that.page_number += 1;
         });
     });
+
+    resolveButton.click(function(){
+        console.log("Attempting to resolve Help Request")
+        that.resolveHelpRequest();
+        tab('help-request-container');
+    });
 }
 
 /**
@@ -891,21 +1141,6 @@ HelpRequest.prototype.buildCore = function(element) {
 HelpRequest.prototype.build = function() {
 
     var that = this
-    
-    // setup listeners
-    that.task_session.setListeners({
-        "custom": function(data) {
-            console.log(data);
-            type = data.payload.message.type;
-            
-            switch(type) {
-                // Join
-                case 0:
-                    alert("Someone has joined the room");
-                    break;
-            }
-        }
-    });
     
     // Make containers
     var main = $("main");
@@ -930,7 +1165,7 @@ HelpRequest.prototype.build = function() {
         
     
     // Setup Hide Button
-    console.log("Setting up hide buttion");
+    console.log("Setting up hide button");
     
     hide_button.click(function() {
         var request_container = $("#help-request-container");
@@ -942,18 +1177,28 @@ HelpRequest.prototype.build = function() {
             document.getElementById('help-request-button-container').style.display = "none";
             document.getElementById('help-request-create-container').style.display = "none";
         } else {
-            
-            // fill the list and show the request container
-            if (!$("#help-request-container").text()) {
-                that.list({}, function(message) {
-                    fillList(message, request_container, that);
-                    that.page_number += 1;
-                });
+
+            if(that.needsResolving) {
+
+                if(document.getElementById('help-request-resolve-container').style.display === "none") {
+                    tab('help-request-resolve-container');
+                } else {
+                    document.getElementById('help-request-resolve-container').style.display = "none";
+                }
+
+
+            } else {
+
+                // fill the list and show the request container
+                if (!$("#help-request-container").text()) {
+                    that.list({}, function(message) {
+                        console.log(message);
+                        fillList(message, request_container, that);
+                        that.page_number += 1;
+                    });
+                }
+                tab('help-request-container');
             }
-            
-            document.getElementById('help-request-container').style.display = "block";
-            document.getElementById('help-request-button-container').style.display = "block";
-            document.getElementById('help-request-create-container').style.display = "none";
         }
     });
     
@@ -997,20 +1242,21 @@ function fillList(data, table, helpRequest) {
             .appendTo(temp_div);
             
         // We need to generate a new function for each click.
-        temp_div.click(specificHRJoin(helpRequest, request.id, id, channel_name));
+        temp_div.click(specificHRJoin(helpRequest, request.id, id, channel_name, request.owner.id));
     }
 }
 
-function specificHRJoin(helpRequest, help_request_id, task_session_id, channel_name) {
+function specificHRJoin(helpRequest, help_request_id, task_session_id, channel_name, owner_id) {
     return function(message) {
-        
-        // if there's something there already we need to cleanup
-        if($("#chats").text()) {
-            leaveHR(helpRequest);
+        console.log("owner_id:" + owner_id);
+
+        if(owner_id == helpRequest.user.id) {
+            tab("help-request-resolve-container");
+            helpRequest.needsResolving = true;
         }
-        helpRequest.task_session.id = task_session_id;
+
         helpRequest.help_request = {id: help_request_id};
-        joinHR(helpRequest, task_session_id, channel_name);
+        helpRequest.joinHelpRequest(help_request_id, task_session_id, channel_name);
     }
 }
 
@@ -1018,6 +1264,7 @@ function specificHRJoin(helpRequest, help_request_id, task_session_id, channel_n
  * Creates and then automatically joins the created help Request
  */
 function createAndJoinHR(helpRequest) {
+
     console.log("Creating new Help Request");
    
     // create help request
@@ -1025,82 +1272,23 @@ function createAndJoinHR(helpRequest) {
         name: $("#help-request-name").val(),
         summary: $("#help-request-summary").val(),
     }
-    
-    var response = {id: null};
-    
-    helpRequest.createHelpRequest(content, function(message) {
-        console.log("Finished Creating Help Request");
-        console.log(message);
-        var response = message;
-        helpRequest.help_request = response;
-        helpRequest.task_session.channel_name = response.channel_name;
-        // Join the Help Request
-        joinHR(helpRequest, response.task_session.id, response.channel_name);
-    })
-    
-    // close the Help Request pane
-    document.getElementById('help-request-create-container').style.display = "none";
+
+    helpRequest.createHelpRequest(content)
+
+    // update ui
+    tab("help-request-resolve-container");
     
     // Clean the list so that we don't have to worry about accuracy
     $("#help-request-container").text("");
     helpRequest.page_number = 1;
-    
-}
+    helpRequest.needsResolving = true;
 
-/**
- * Joins a help Request (For pre-built module only)
- */
-function joinHR(helpRequest, task_session_id, channel_name = "") {
-    
-    
-    // TODO: make a loading screen for connecting
-    
-    console.log(task_session_id);
-    console.log(channel_name);
-    
-    // Join help Request
-    console.log("Joining new Help Request");
-    if(! helpRequest.task_session.channel_name) {
-        helpRequest.task_session.channel_name = channel_name;
-    }
-    helpRequest.joinHelpRequest(task_session_id);
-    // Add a close button to the chat window
-    // TODO: make this not hardcoded
-    var chatWindow = $("#chats");
-    var closeButtonDiv = $("<div>")
-        .attr("id", "help-request-close-div")
-        .attr("class", "help-request-close-container")
-        .appendTo(chatWindow);
-    //if(! $("#close-chat")) {
-        var close_button = $("<i>")
-            .attr("id", "close-chat")
-            .attr("class", "fa fa-window-close-o close-button")
-            .appendTo(closeButtonDiv);
-    //}
-    
-    $("#close-chat").click(function() {
-        leaveHR(helpRequest);
-    });
-    
-    document.getElementById("chats").style.display = "";
-    
-    // Hide Help Request Window 
-    document.getElementById('help-request-container').style.display = "none";
-    document.getElementById('help-request-button-container').style.display = "none";
 }
-
-function leaveHR(helpRequest) {
-    helpRequest.leaveHelpRequest(function(message) {
-        console.log(message);
-    });
-    
-    document.getElementById("chats").style.display = "none";
-}
-
 
 function HelpRequest(){
     this.model = 'helprequest';
     this.client = null;
+    this.apiClient = null;
     this.present = null;
     this.connected = false;
 
@@ -1112,8 +1300,10 @@ function HelpRequest(){
     this.task_session = null;
     this.help_request = null;
     this.focus = null;
-    
+
+    // for website
     this.page_number = 1;
+    this.needsResolving = false;
 
 }
 
@@ -1244,11 +1434,24 @@ div.help-request-main{
     background-color: rgb(38, 50, 56);
     width: 288px;
 }
+
+.help-request-resolve-container {
+    border-left-color: rgb(38, 50, 56);
+    border-left-style: solid;
+    border-left-width: 2px;
+    border-right-color: rgb(38, 50, 56);
+    border-right-style: solid;
+    border-right-width: 2px;
+    background-color: white;
+    padding-top: 20px;
+    padding-bottom: 20px;
+}
+
 `
 
 module.exports = HelpRequest;
 
-},{"./task-session":6,"jquery":9,"jquery-ui-browserify":8,"reconnectingwebsocket":10}],5:[function(require,module,exports){
+},{"./task-session":6,"jquery":12,"jquery-ui-browserify":11,"reconnectingwebsocket":9}],5:[function(require,module,exports){
 function TaskRoutingManager(){
     this.client = null;
     this.queues = null;
@@ -1343,6 +1546,7 @@ TaskRoutingManager.prototype.simulateGetNextTask = function(){
 module.exports = TaskRoutingManager;
 },{}],6:[function(require,module,exports){
 var ReconnectingWebSocket = require('reconnectingwebsocket');
+var md = require("node-markdown").Markdown;
 
 Array.prototype.diff = function (a) {
     return this.filter(function (i) {
@@ -1378,9 +1582,9 @@ function TaskSession(){
 }
 
 /**
- * Initializes the TaskSession instance by fetching the associated policy and 
+ * Initializes the TaskSession instance by fetching the associated policy and
  * retrieving a session for the user.
- * @param {Object} params 
+ * @param {Object} params
  */
 TaskSession.prototype.init = function(params) {
     var that = this;
@@ -1409,7 +1613,34 @@ TaskSession.prototype.init = function(params) {
             print("ERROR: Can't handle transmitted Interface Save event. (E: "+event+" )");
         }
         that.handleInterfaceActionDelete = function(event){
-            print("ERROR: Can't handle transmitted Inteface Delete event. (E: "+event+" )");
+            print("ERROR: Can't handle transmitted Interface Delete event. (E: "+event+" )");
+        }
+        that.handleInterfaceActionTaskSwitch = function(event){
+            print("ERROR: Can't handle transmitted Interface TaskSwitch event. (E: "+event+" )");
+        }
+        that.handleInterfaceActionTaskSwitchForced = function(event){
+            print("ERROR: Can't handle transmitted Interface TaskSwitchForced event. (E: "+event+" )");
+        }
+        that.handleInterfaceActionTaskLock = function(event){
+            print("ERROR: Can't handle transmitted Interface TaskLock event. (E: "+event+" )");
+        }
+        that.handleInterfaceActionTaskUnlock = function(event){
+            print("ERROR: Can't handle transmitted Interface TaskUnlock event. (E: "+event+" )");
+        }
+        that.handleInterfaceActionTaskSetFocus = function(event){
+            print("ERROR: Can't handle transmitted Interface TaskSetFocus event. (E: "+event+" )");
+        }
+        that.handleInterfaceActionTaskQueueSwitch = function(event){
+            print("ERROR: Can't handle transmitted Interface TaskQueueSwitch event. (E: "+event+" )");
+        }
+        that.handleODHCreated = function(event){
+            print("ERROR: Can't handle transmitted  ODH Created event. (E: "+event+" )");
+        }
+        that.handleODHResolved = function(event){
+            print("ERROR: Can't handle transmitted  ODH Resolved event. (E: "+event+" )");
+        }
+        that.handleODHSetFocus = function(event) {
+            print("ERROR: Can't handle transmitted  ODH SetFocus event. (E: "+event+" )");
         }
 
         // fetch the task policy
@@ -1421,8 +1652,9 @@ TaskSession.prototype.init = function(params) {
                 that.find().then(function(id){
                     print("Session Retrieved: "+id);
                     that.task_session = id;
-                    that.connect(that.task_session);
-                    
+                    console.log("connecting 1");
+                    //that.connect(that.task_session);
+
                     // resolve after we have the connection
                     resolve();
                 });
@@ -1435,30 +1667,57 @@ TaskSession.prototype.init = function(params) {
 
 /**
  * Sets callbacks that are executed when new events are sent and received.
- * 
+ *
  *  Structure of obj should be:
  *      {
  *          'send': function(){ ... },
  *          'receive': function(){ ... }
  *      }
- * 
- * @param {Object} obj 
+ *
+ * @param {Object} obj
  */
 TaskSession.prototype.setListeners = function(obj){
+
+    console.log("Assigning custom handlers");
+
     if('save' in obj && typeof obj['save'] === "function"){
         this.handleInterfaceActionSave = obj['save'];
     }
     if('delete' in obj && typeof obj['delete'] === "function"){
         this.handleInterfaceActionDelete = obj['delete'];
     }
-    if('custom' in obj && typeof obj['custom'] === "function"){
-        this.handleInterfaceActionCustom = obj['custom'];
+    if('taskSwitch' in obj && typeof obj['taskSwitch'] === "function"){
+        this.handleInterfaceActionTaskSwitch = obj['taskSwitch'];
+    }
+    if('taskSwitchForced' in obj && typeof obj['taskSwitchForced'] === "function"){
+        this.handleInterfaceActionTaskSwitchForced = obj['taskSwitchForced'];
+    }
+    if('taskLock' in obj && typeof obj['taskLock'] === "function"){
+        this.handleInterfaceActionTaskLock = obj['taskLock'];
+    }
+    if('taskUnlock' in obj && typeof obj['taskUnlock'] === "function"){
+        this.handleInterfaceActionTaskUnlock = obj['taskUnlock'];
+    }
+    if('taskSetFocus' in obj && typeof obj['taskSetFocus'] === "function"){
+        this.handleInterfaceActionTaskSetFocus = obj['taskSetFocus'];
+    }
+    if('taskQueueSwitch' in obj && typeof obj['taskQueueSwitch'] === "function"){
+        this.handleInterfaceActionTaskQueueSwitch = obj['taskQueueSwitch'];
+    }
+    if('odhCreated' in obj && typeof obj['odhCreated'] == "function"){
+        this.handleODHCreated = obj['odhCreated'];
+    }
+    if("odhResolved" in obj && typeof obj['odhResolved'] == "function"){
+        this.handleODHResolved = obj['odhResolved'];
+    }
+    if("odhSetFocus" in obj && typeof obj['odhSetFocus'] == "function"){
+        this.handleODHSetFocus = obj['odhSetFocus'];
     }
 };
 
 /**
  * Creates a TaskSession objects with a given channel name.
- * @param {String} channel_name 
+ * @param {String} channel_name
  */
 TaskSession.prototype.create = function(channel_name){
     var that = this;
@@ -1533,10 +1792,15 @@ TaskSession.prototype.fetchPolicy = function(){
         print("Fetching policy ...");
 
         // set params
-        params = {
+        var params = {
             task: this.task.id,
-            experiment: this.experiment.id,
-            condition: this.condition.id
+        }
+
+        if(this.experiment){
+            params = jQuery.extend({experiment: this.experiment.id}, params)
+        }
+        if(this.condition){
+            params = jQuery.extend({condition: this.condition.id}, params)
         }
 
         let action = ['tasksessionpolicy', "list"];
@@ -1556,8 +1820,8 @@ TaskSession.prototype.fetchPolicy = function(){
  * Connects and maintains a valid websocket connection for a particula task session
  */
 TaskSession.prototype.connect = function(roomId){
-    
-    
+
+
     $("#task-container").append('<div id="chats"></div>');
 
     var ws_scheme = window.location.protocol == "https:" ? "wss" : "ws";
@@ -1598,7 +1862,7 @@ TaskSession.prototype.connect = function(roomId){
                 var msgdiv = $('#chat-messages');
                 msgdiv.append("<div class='contextual-message text-muted'>" + diff + " left the room!" + "</div>");
                 msgdiv.scrollTop(msgdiv.prop("scrollHeight"));
-            }   
+            }
 
             // update the tooltip
             ele.attr('data-tooltip', tooltip_html);
@@ -1645,22 +1909,20 @@ TaskSession.prototype.connect = function(roomId){
                 var navbar_username = $("#user-logged-in a").text();
                 var direction = 'in';
                 if(navbar_username === message.handle){
-                    direction = 'out';
+                    direction = 'out no-avatar';
                 }
                 var message_time = message.created;
 
                 // Message
-                ok_msg = '<div class="message '+direction+' no-avatar">\
+                ok_msg = '<div class="message '+direction+'">\
                         <!-- BEGIN MESSAGE SENDER INFO -->\
                         <div class="sender">\
-                            <a href="javascript:void(0);" title="Rufat Askerov">\
-                                <img src="assets/img/avatar.png" class="avatar" alt="Rufat Askerov">\
-                            </a>\
+                            <div class="default-avatar">'+message.handle[0]+'</div>\
                         </div>\
                         <!-- END MESSAGE SENDER INFO -->\
                         <div class="body">\
                         <!-- BEGIN MESSAGE CONTENT-->\
-                        <div class="content"><span>'+message.content+'</span></div>\
+                        <div class="content"><span>'+md(message.content)+'</span></div>\
                         <!-- BEGIN MESSAGE CONTENT  -->\
                         <!-- BEGIN MESSAGE SEND TIME -->\
                         <div class="seen"><span>'+convertTimestamp(message_time)+'</span> </div>\
@@ -1792,30 +2054,28 @@ TaskSession.prototype.connect = function(roomId){
                     var navbar_username = $("#user-logged-in a").text();
                     var direction = 'in';
                     if(navbar_username === data.payload.username){
-                        direction = 'out';
+                        direction = 'out no-avatar';
                     }
 
                     // calculate time
-                    var currentdate = new Date(); 
+                    var currentdate = new Date();
                     var datetime = (currentdate.getMonth()+1) + "/"
-                                    + currentdate.getDate()  + "/" 
-                                    + currentdate.getFullYear() + " @ "  
-                                    + currentdate.getHours() + ":"  
-                                    + currentdate.getMinutes() + ":" 
+                                    + currentdate.getDate()  + "/"
+                                    + currentdate.getFullYear() + " @ "
+                                    + currentdate.getHours() + ":"
+                                    + currentdate.getMinutes() + ":"
                                     + currentdate.getSeconds();
 
                     // Message
-                    ok_msg = '<div class="message '+direction+' no-avatar">\
+                    ok_msg = '<div class="message '+direction+'">\
                             <!-- BEGIN MESSAGE SENDER INFO -->\
                             <div class="sender">\
-                                <a href="javascript:void(0);" title="Rufat Askerov">\
-                                    <img class="avatar" alt="Rufat Askerov">\
-                                </a>\
+                                <div class="default-avatar">'+data.payload.username[0]+'</div>\
                             </div>\
                             <!-- END MESSAGE SENDER INFO -->\
                             <div class="body">\
                             <!-- BEGIN MESSAGE CONTENT-->\
-                            <div class="content"><span>'+data.payload.message+'</span></div>\
+                            <div class="content"><span>'+md(data.payload.message)+'</span></div>\
                             <!-- BEGIN MESSAGE CONTENT  -->\
                             <!-- BEGIN MESSAGE SEND TIME -->\
                             <div class="seen"><span>'+datetime+'</span> </div>\
@@ -1855,20 +2115,51 @@ TaskSession.prototype.connect = function(roomId){
                     that.handleInterfaceActionDelete(data);
                     break;
                 case 11:
-                    that.handleInterfaceActionCustom(data);
+                    that.handleInterfaceActionTaskSwitch(data);
+                    break;
+                case 12:
+                    that.handleInterfaceActionTaskSwitchForced(data);
+                    break;
+                case 13:
+                    that.handleInterfaceActionTaskLock(data);
+                    break;
+                case 14:
+                    that.handleInterfaceActionTaskUnlock(data);
+                    break;
+                case 15:
+                    that.handleInterfaceActionTaskSetFocus(data);
+                    break;
+                case 16:
+                    that.handleInterfaceActionTaskQueueSwitch(data);
+                    break;
+                case 30:
+                    that.handleODHCreated(data);
+                    break;
+                case 31:
+                    that.handleODHResolved(data);
+                    break;
+                case 32:
+                    that.handleODHSetFocus(data);
                     break;
                 default:
                     print("Unsupported message type!");
                     return;
             }
-            msgdiv.append(ok_msg);
+            var navbar_username = $("#user-logged-in a").text();
+            if(data.msg_type === 4){
+                if (navbar_username !== data.payload.username){
+                    msgdiv.append(ok_msg);
+                }
+            } else {
+                msgdiv.append(ok_msg);
+            }
             msgdiv.scrollTop(msgdiv.prop("scrollHeight"));
         } else {
             print("Cannot handle message!");
         }
     };
 
-    
+
 }
 
 /**
@@ -1917,7 +2208,1798 @@ TaskSession.prototype.loadState = function(callback){
 }
 
 module.exports = TaskSession;
-},{"reconnectingwebsocket":10}],7:[function(require,module,exports){
+
+},{"node-markdown":7,"reconnectingwebsocket":9}],7:[function(require,module,exports){
+/* node-markdown is based on Showdown parser (see vendor/showdown) */
+/* usage: html = require("markdown").Markdown(markdown_string);    */
+
+// import Showdown parser
+var Showdown = new (require("./vendor/showdown/src/showdown.js").Showdown.converter)();
+
+/**
+ * Markdown(text, stripUnwanted, allowedtags, allowedAttribs) -> String
+ * - text (String): Markdown syntax to be parsed
+ * - stripUnwanted (Boolean): if TRUE strip all unwanted tags and attributes
+ * - allowedTags (String): allowed HTML tags in the form of "tag1|tag2|tag3"
+ * - allowedAttributes (Object): allowed attributes for specific tags
+ *   format: {"tag1":"attrib1|attrib2|attrib3", "tag2":...}
+ *   wildcard for all tags: "*"
+ * - forceProtocol (Boolean): Force src and href to http:// if they miss a protocol.
+ * 
+ * Converts a markdown text into a HTML 
+ **/
+this.Markdown = function(text, stripUnwanted, allowedTags, allowedAttributes, forceProtocol){
+    var md =  Showdown.makeHtml(text);
+    if(stripUnwanted)
+        return stripUnwantedHTML(md, allowedTags, allowedAttributes, forceProtocol);
+    else
+        return md;
+}
+
+/**
+ * stripUnwantedHTML(html, allowedtags, allowedAttribs, forceProtocol) -> String
+ * - html (String): HTML code to be parsed
+ * - allowedTags (String): allowed HTML tags in the form of "tag1|tag2|tag3"
+ * - allowedAttributes (Object): allowed attributes for specific tags
+ *   format: {"tag1":"attrib1|attrib2|attrib3", "tag2":...}
+ *   wildcard for all tags: "*"
+ * - forceProtocol (Boolean): Force src and href to http:// if they miss a protocol.
+ * 
+ * Removes unwanted tags and attributes from HTML string
+ **/
+var stripUnwantedHTML = function(html /*, allowedTags, allowedAttributes, forceProtocol */){
+    var allowedTags = arguments[1] || 
+            'a|b|blockquote|code|del|dd|dl|dt|em|h1|h2|h3|'+
+            'i|img|li|ol|p|pre|sup|sub|strong|strike|ul|br|hr',
+        allowedAttributes = arguments[2] || {
+            'img': 'src|width|height|alt',
+            'a':   'href',
+            '*':   'title'
+        }, forceProtocol = arguments[3] || false,
+        
+        testAllowed = new RegExp('^('+allowedTags.toLowerCase()+')$'),
+        findTags = /<(\/?)\s*([\w:\-]+)([^>]*)>/g,
+        findAttribs = /(\s*)([\w:-]+)\s*=\s*(?:(?:(["'])([^\3]+?)(?:\3))|([^\s]+))/g;
+    
+    // convert all strings patterns into regexp objects (if not already converted)
+    for(var i in allowedAttributes){
+        if(allowedAttributes.hasOwnProperty(i) && typeof allowedAttributes[i] === 'string'){
+            allowedAttributes[i] = new RegExp('^('+
+                allowedAttributes[i].toLowerCase()+')$');
+        }
+    }
+    
+    // find and match html tags
+    return html.replace(findTags, function(original, lslash, tag, params){
+        var tagAttr, wildcardAttr, 
+            rslash = params.substr(-1)=="/" && "/" || "";
+
+        tag = tag.toLowerCase();
+        
+        // tag is not allowed, return empty string
+        if(!tag.match(testAllowed))
+            return "";
+        
+        // tag is allowed
+        else{
+            // regexp objects for a particular tag
+            tagAttr = tag in allowedAttributes && allowedAttributes[tag];
+            wildcardAttr = "*" in allowedAttributes && allowedAttributes["*"];
+            
+            // if no attribs are allowed
+            if(!tagAttr && !wildcardAttr)
+                return "<"+lslash+tag+rslash+">";
+            
+            // remove trailing slash if any
+            params = params.trim();
+            if(rslash){
+                params = params.substr(0, params.length-1);
+            }
+            
+            // find and remove unwanted attributes
+            params = params.replace(findAttribs, function(original, space,
+                                                            name, quot, value){
+                name = name.toLowerCase();
+                
+                if (!value && !quot) {
+                  value = "";
+                  quot = '"';
+                } else if (!value) {
+                  value = quot;
+                  quot = '"';
+                }
+                
+                // force data: and javascript: links and images to #
+                if((name=="href" || name=="src") &&
+                   (value.trim().substr(0, "javascript:".length)=="javascript:"
+                    || value.trim().substr(0, "data:".length)=="data:")) {
+                    value = "#";
+                }
+                
+                // scope links and sources to http protocol
+                if (forceProtocol &&
+                     (name=="href" || name=="src") &&
+                     !/^[a-zA-Z]{3,5}:\/\//.test(value)) {
+                  value = "http://" + value;
+                }
+                
+                if((wildcardAttr && name.match(wildcardAttr)) ||
+                        (tagAttr && name.match(tagAttr))){
+                    return space+name+"="+quot+value+quot;
+                }else
+                    return "";
+            });
+
+            return "<"+lslash+tag+(params?" "+params:"")+rslash+">";
+        }
+            
+    });
+}
+
+},{"./vendor/showdown/src/showdown.js":8}],8:[function(require,module,exports){
+// Line 70, 78 updated to be compatible with node.js module system
+// 2010 Andris Reinman
+
+//
+// showdown.js -- A javascript port of Markdown.
+//
+// Copyright (c) 2007 John Fraser.
+//
+// Original Markdown Copyright (c) 2004-2005 John Gruber
+//   <http://daringfireball.net/projects/markdown/>
+//
+// Redistributable under a BSD-style open source license.
+// See license.txt for more information.
+//
+// The full source distribution is at:
+//
+//				A A L
+//				T C A
+//				T K B
+//
+//   <http://www.attacklab.net/>
+//
+
+//
+// Wherever possible, Showdown is a straight, line-by-line port
+// of the Perl version of Markdown.
+//
+// This is not a normal parser design; it's basically just a
+// series of string substitutions.  It's hard to read and
+// maintain this way,  but keeping Showdown close to the original
+// design makes it easier to port new features.
+//
+// More importantly, Showdown behaves like markdown.pl in most
+// edge cases.  So web applications can do client-side preview
+// in Javascript, and then build identical HTML on the server.
+//
+// This port needs the new RegExp functionality of ECMA 262,
+// 3rd Edition (i.e. Javascript 1.5).  Most modern web browsers
+// should do fine.  Even with the new regular expression features,
+// We do a lot of work to emulate Perl's regex functionality.
+// The tricky changes in this file mostly have the "attacklab:"
+// label.  Major or self-explanatory changes don't.
+//
+// Smart diff tools like Araxis Merge will be able to match up
+// this file with markdown.pl in a useful way.  A little tweaking
+// helps: in a copy of markdown.pl, replace "#" with "//" and
+// replace "$text" with "text".  Be sure to ignore whitespace
+// and line endings.
+//
+
+
+//
+// Showdown usage:
+//
+//   var text = "Markdown *rocks*.";
+//
+//   var converter = new Showdown.converter();
+//   var html = converter.makeHtml(text);
+//
+//   alert(html);
+//
+// Note: move the sample code to the bottom of this
+// file before uncommenting it.
+//
+
+
+//
+// Showdown namespace
+//
+this.Showdown = {};
+
+//
+// converter
+//
+// Wraps all "globals" so that the only thing
+// exposed is makeHtml().
+//
+this.Showdown.converter = function() {
+
+//
+// Globals:
+//
+
+// Global hashes, used by various utility routines
+var g_urls;
+var g_titles;
+var g_html_blocks;
+
+// Used to track when we're inside an ordered or unordered list
+// (see _ProcessListItems() for details):
+var g_list_level = 0;
+
+
+this.makeHtml = function(text) {
+//
+// Main function. The order in which other subs are called here is
+// essential. Link and image substitutions need to happen before
+// _EscapeSpecialCharsWithinTagAttributes(), so that any *'s or _'s in the <a>
+// and <img> tags get encoded.
+//
+
+	// Clear the global hashes. If we don't clear these, you get conflicts
+	// from other articles when generating a page which contains more than
+	// one article (e.g. an index page that shows the N most recent
+	// articles):
+	g_urls = new Array();
+	g_titles = new Array();
+	g_html_blocks = new Array();
+
+	// attacklab: Replace ~ with ~T
+	// This lets us use tilde as an escape char to avoid md5 hashes
+	// The choice of character is arbitray; anything that isn't
+    // magic in Markdown will work.
+	text = text.replace(/~/g,"~T");
+
+	// attacklab: Replace $ with ~D
+	// RegExp interprets $ as a special character
+	// when it's in a replacement string
+	text = text.replace(/\$/g,"~D");
+
+	// Standardize line endings
+	text = text.replace(/\r\n/g,"\n"); // DOS to Unix
+	text = text.replace(/\r/g,"\n"); // Mac to Unix
+
+	// Make sure text begins and ends with a couple of newlines:
+	text = "\n\n" + text + "\n\n";
+
+	// Convert all tabs to spaces.
+	text = _Detab(text);
+
+	// Strip any lines consisting only of spaces and tabs.
+	// This makes subsequent regexen easier to write, because we can
+	// match consecutive blank lines with /\n+/ instead of something
+	// contorted like /[ \t]*\n+/ .
+	text = text.replace(/^[ \t]+$/mg,"");
+
+	// Turn block-level HTML blocks into hash entries
+	text = _HashHTMLBlocks(text);
+
+	// Strip link definitions, store in hashes.
+	text = _StripLinkDefinitions(text);
+
+	text = _RunBlockGamut(text);
+
+	text = _UnescapeSpecialChars(text);
+
+	// attacklab: Restore dollar signs
+	text = text.replace(/~D/g,"$$");
+
+	// attacklab: Restore tildes
+	text = text.replace(/~T/g,"~");
+
+	return text;
+}
+
+
+var _StripLinkDefinitions = function(text) {
+//
+// Strips link definitions from text, stores the URLs and titles in
+// hash references.
+//
+
+	// Link defs are in the form: ^[id]: url "optional title"
+
+	/*
+		var text = text.replace(/
+				^[ ]{0,3}\[(.+)\]:  // id = $1  attacklab: g_tab_width - 1
+				  [ \t]*
+				  \n?				// maybe *one* newline
+				  [ \t]*
+				<?(\S+?)>?			// url = $2
+				  [ \t]*
+				  \n?				// maybe one newline
+				  [ \t]*
+				(?:
+				  (\n*)				// any lines skipped = $3 attacklab: lookbehind removed
+				  ["(]
+				  (.+?)				// title = $4
+				  [")]
+				  [ \t]*
+				)?					// title is optional
+				(?:\n+|$)
+			  /gm,
+			  function(){...});
+	*/
+	var text = text.replace(/^[ ]{0,3}\[(.+)\]:[ \t]*\n?[ \t]*<?(\S+?)>?[ \t]*\n?[ \t]*(?:(\n*)["(](.+?)[")][ \t]*)?(?:\n+|\Z)/gm,
+		function (wholeMatch,m1,m2,m3,m4) {
+			m1 = m1.toLowerCase();
+			g_urls[m1] = _EncodeAmpsAndAngles(m2);  // Link IDs are case-insensitive
+			if (m3) {
+				// Oops, found blank lines, so it's not a title.
+				// Put back the parenthetical statement we stole.
+				return m3+m4;
+			} else if (m4) {
+				g_titles[m1] = m4.replace(/"/g,"&quot;");
+			}
+			
+			// Completely remove the definition from the text
+			return "";
+		}
+	);
+
+	return text;
+}
+
+
+var _HashHTMLBlocks = function(text) {
+	// attacklab: Double up blank lines to reduce lookaround
+	text = text.replace(/\n/g,"\n\n");
+
+	// Hashify HTML blocks:
+	// We only want to do this for block-level HTML tags, such as headers,
+	// lists, and tables. That's because we still want to wrap <p>s around
+	// "paragraphs" that are wrapped in non-block-level tags, such as anchors,
+	// phrase emphasis, and spans. The list of tags we're looking for is
+	// hard-coded:
+	var block_tags_a = "p|div|h[1-6]|blockquote|pre|table|dl|ol|ul|script|noscript|form|fieldset|iframe|math|ins|del"
+	var block_tags_b = "p|div|h[1-6]|blockquote|pre|table|dl|ol|ul|script|noscript|form|fieldset|iframe|math"
+
+	// First, look for nested blocks, e.g.:
+	//   <div>
+	//     <div>
+	//     tags for inner block must be indented.
+	//     </div>
+	//   </div>
+	//
+	// The outermost tags must start at the left margin for this to match, and
+	// the inner nested divs must be indented.
+	// We need to do this before the next, more liberal match, because the next
+	// match will start at the first `<div>` and stop at the first `</div>`.
+
+	// attacklab: This regex can be expensive when it fails.
+	/*
+		var text = text.replace(/
+		(						// save in $1
+			^					// start of line  (with /m)
+			<($block_tags_a)	// start tag = $2
+			\b					// word break
+								// attacklab: hack around khtml/pcre bug...
+			[^\r]*?\n			// any number of lines, minimally matching
+			</\2>				// the matching end tag
+			[ \t]*				// trailing spaces/tabs
+			(?=\n+)				// followed by a newline
+		)						// attacklab: there are sentinel newlines at end of document
+		/gm,function(){...}};
+	*/
+	text = text.replace(/^(<(p|div|h[1-6]|blockquote|pre|table|dl|ol|ul|script|noscript|form|fieldset|iframe|math|ins|del)\b[^\r]*?\n<\/\2>[ \t]*(?=\n+))/gm,hashElement);
+
+	//
+	// Now match more liberally, simply from `\n<tag>` to `</tag>\n`
+	//
+
+	/*
+		var text = text.replace(/
+		(						// save in $1
+			^					// start of line  (with /m)
+			<($block_tags_b)	// start tag = $2
+			\b					// word break
+								// attacklab: hack around khtml/pcre bug...
+			[^\r]*?				// any number of lines, minimally matching
+			.*</\2>				// the matching end tag
+			[ \t]*				// trailing spaces/tabs
+			(?=\n+)				// followed by a newline
+		)						// attacklab: there are sentinel newlines at end of document
+		/gm,function(){...}};
+	*/
+	text = text.replace(/^(<(p|div|h[1-6]|blockquote|pre|table|dl|ol|ul|script|noscript|form|fieldset|iframe|math)\b[^\r]*?.*<\/\2>[ \t]*(?=\n+)\n)/gm,hashElement);
+
+	// Special case just for <hr />. It was easier to make a special case than
+	// to make the other regex more complicated.  
+
+	/*
+		text = text.replace(/
+		(						// save in $1
+			\n\n				// Starting after a blank line
+			[ ]{0,3}
+			(<(hr)				// start tag = $2
+			\b					// word break
+			([^<>])*?			// 
+			\/?>)				// the matching end tag
+			[ \t]*
+			(?=\n{2,})			// followed by a blank line
+		)
+		/g,hashElement);
+	*/
+	text = text.replace(/(\n[ ]{0,3}(<(hr)\b([^<>])*?\/?>)[ \t]*(?=\n{2,}))/g,hashElement);
+
+	// Special case for standalone HTML comments:
+
+	/*
+		text = text.replace(/
+		(						// save in $1
+			\n\n				// Starting after a blank line
+			[ ]{0,3}			// attacklab: g_tab_width - 1
+			<!
+			(--[^\r]*?--\s*)+
+			>
+			[ \t]*
+			(?=\n{2,})			// followed by a blank line
+		)
+		/g,hashElement);
+	*/
+	text = text.replace(/(\n\n[ ]{0,3}<!(--[^\r]*?--\s*)+>[ \t]*(?=\n{2,}))/g,hashElement);
+
+	// PHP and ASP-style processor instructions (<?...?> and <%...%>)
+
+	/*
+		text = text.replace(/
+		(?:
+			\n\n				// Starting after a blank line
+		)
+		(						// save in $1
+			[ ]{0,3}			// attacklab: g_tab_width - 1
+			(?:
+				<([?%])			// $2
+				[^\r]*?
+				\2>
+			)
+			[ \t]*
+			(?=\n{2,})			// followed by a blank line
+		)
+		/g,hashElement);
+	*/
+	text = text.replace(/(?:\n\n)([ ]{0,3}(?:<([?%])[^\r]*?\2>)[ \t]*(?=\n{2,}))/g,hashElement);
+
+	// attacklab: Undo double lines (see comment at top of this function)
+	text = text.replace(/\n\n/g,"\n");
+	return text;
+}
+
+var hashElement = function(wholeMatch,m1) {
+	var blockText = m1;
+
+	// Undo double lines
+	blockText = blockText.replace(/\n\n/g,"\n");
+	blockText = blockText.replace(/^\n/,"");
+	
+	// strip trailing blank lines
+	blockText = blockText.replace(/\n+$/g,"");
+	
+	// Replace the element text with a marker ("~KxK" where x is its key)
+	blockText = "\n\n~K" + (g_html_blocks.push(blockText)-1) + "K\n\n";
+	
+	return blockText;
+};
+
+var _RunBlockGamut = function(text) {
+//
+// These are all the transformations that form block-level
+// tags like paragraphs, headers, and list items.
+//
+	text = _DoHeaders(text);
+
+	// Do Horizontal Rules:
+	var key = hashBlock("<hr />");
+	text = text.replace(/^[ ]{0,2}([ ]?\*[ ]?){3,}[ \t]*$/gm,key);
+	text = text.replace(/^[ ]{0,2}([ ]?\-[ ]?){3,}[ \t]*$/gm,key);
+	text = text.replace(/^[ ]{0,2}([ ]?\_[ ]?){3,}[ \t]*$/gm,key);
+
+	text = _DoLists(text);
+	text = _DoCodeBlocks(text);
+	text = _DoBlockQuotes(text);
+
+	// We already ran _HashHTMLBlocks() before, in Markdown(), but that
+	// was to escape raw HTML in the original Markdown source. This time,
+	// we're escaping the markup we've just created, so that we don't wrap
+	// <p> tags around block-level tags.
+	text = _HashHTMLBlocks(text);
+	text = _FormParagraphs(text);
+
+	return text;
+}
+
+
+var _RunSpanGamut = function(text) {
+//
+// These are all the transformations that occur *within* block-level
+// tags like paragraphs, headers, and list items.
+//
+
+	text = _DoCodeSpans(text);
+	text = _EscapeSpecialCharsWithinTagAttributes(text);
+	text = _EncodeBackslashEscapes(text);
+
+	// Process anchor and image tags. Images must come first,
+	// because ![foo][f] looks like an anchor.
+	text = _DoImages(text);
+	text = _DoAnchors(text);
+
+	// Make links out of things like `<http://example.com/>`
+	// Must come after _DoAnchors(), because you can use < and >
+	// delimiters in inline links like [this](<url>).
+	text = _DoAutoLinks(text);
+	text = _EncodeAmpsAndAngles(text);
+	text = _DoItalicsAndBold(text);
+
+	// Do hard breaks:
+	text = text.replace(/  +\n/g," <br />\n");
+
+	return text;
+}
+
+var _EscapeSpecialCharsWithinTagAttributes = function(text) {
+//
+// Within tags -- meaning between < and > -- encode [\ ` * _] so they
+// don't conflict with their use in Markdown for code, italics and strong.
+//
+
+	// Build a regex to find HTML tags and comments.  See Friedl's 
+	// "Mastering Regular Expressions", 2nd Ed., pp. 200-201.
+	var regex = /(<[a-z\/!$]("[^"]*"|'[^']*'|[^'">])*>|<!(--.*?--\s*)+>)/gi;
+
+	text = text.replace(regex, function(wholeMatch) {
+		var tag = wholeMatch.replace(/(.)<\/?code>(?=.)/g,"$1`");
+		tag = escapeCharacters(tag,"\\`*_");
+		return tag;
+	});
+
+	return text;
+}
+
+var _DoAnchors = function(text) {
+//
+// Turn Markdown link shortcuts into XHTML <a> tags.
+//
+	//
+	// First, handle reference-style links: [link text] [id]
+	//
+
+	/*
+		text = text.replace(/
+		(							// wrap whole match in $1
+			\[
+			(
+				(?:
+					\[[^\]]*\]		// allow brackets nested one level
+					|
+					[^\[]			// or anything else
+				)*
+			)
+			\]
+
+			[ ]?					// one optional space
+			(?:\n[ ]*)?				// one optional newline followed by spaces
+
+			\[
+			(.*?)					// id = $3
+			\]
+		)()()()()					// pad remaining backreferences
+		/g,_DoAnchors_callback);
+	*/
+	text = text.replace(/(\[((?:\[[^\]]*\]|[^\[\]])*)\][ ]?(?:\n[ ]*)?\[(.*?)\])()()()()/g,writeAnchorTag);
+
+	//
+	// Next, inline-style links: [link text](url "optional title")
+	//
+
+	/*
+		text = text.replace(/
+			(						// wrap whole match in $1
+				\[
+				(
+					(?:
+						\[[^\]]*\]	// allow brackets nested one level
+					|
+					[^\[\]]			// or anything else
+				)
+			)
+			\]
+			\(						// literal paren
+			[ \t]*
+			()						// no id, so leave $3 empty
+			<?(.*?)>?				// href = $4
+			[ \t]*
+			(						// $5
+				(['"])				// quote char = $6
+				(.*?)				// Title = $7
+				\6					// matching quote
+				[ \t]*				// ignore any spaces/tabs between closing quote and )
+			)?						// title is optional
+			\)
+		)
+		/g,writeAnchorTag);
+	*/
+	text = text.replace(/(\[((?:\[[^\]]*\]|[^\[\]])*)\]\([ \t]*()<?(.*?)>?[ \t]*((['"])(.*?)\6[ \t]*)?\))/g,writeAnchorTag);
+
+	//
+	// Last, handle reference-style shortcuts: [link text]
+	// These must come last in case you've also got [link test][1]
+	// or [link test](/foo)
+	//
+
+	/*
+		text = text.replace(/
+		(		 					// wrap whole match in $1
+			\[
+			([^\[\]]+)				// link text = $2; can't contain '[' or ']'
+			\]
+		)()()()()()					// pad rest of backreferences
+		/g, writeAnchorTag);
+	*/
+	text = text.replace(/(\[([^\[\]]+)\])()()()()()/g, writeAnchorTag);
+
+	return text;
+}
+
+var writeAnchorTag = function(wholeMatch,m1,m2,m3,m4,m5,m6,m7) {
+	if (m7 == undefined) m7 = "";
+	var whole_match = m1;
+	var link_text   = m2;
+	var link_id	 = m3.toLowerCase();
+	var url		= m4;
+	var title	= m7;
+	
+	if (url == "") {
+		if (link_id == "") {
+			// lower-case and turn embedded newlines into spaces
+			link_id = link_text.toLowerCase().replace(/ ?\n/g," ");
+		}
+		url = "#"+link_id;
+		
+		if (g_urls[link_id] != undefined) {
+			url = g_urls[link_id];
+			if (g_titles[link_id] != undefined) {
+				title = g_titles[link_id];
+			}
+		}
+		else {
+			if (whole_match.search(/\(\s*\)$/m)>-1) {
+				// Special case for explicit empty url
+				url = "";
+			} else {
+				return whole_match;
+			}
+		}
+	}	
+	
+	url = escapeCharacters(url,"*_");
+	var result = "<a href=\"" + url + "\"";
+	
+	if (title != "") {
+		title = title.replace(/"/g,"&quot;");
+		title = escapeCharacters(title,"*_");
+		result +=  " title=\"" + title + "\"";
+	}
+	
+	result += ">" + link_text + "</a>";
+	
+	return result;
+}
+
+
+var _DoImages = function(text) {
+//
+// Turn Markdown image shortcuts into <img> tags.
+//
+
+	//
+	// First, handle reference-style labeled images: ![alt text][id]
+	//
+
+	/*
+		text = text.replace(/
+		(						// wrap whole match in $1
+			!\[
+			(.*?)				// alt text = $2
+			\]
+
+			[ ]?				// one optional space
+			(?:\n[ ]*)?			// one optional newline followed by spaces
+
+			\[
+			(.*?)				// id = $3
+			\]
+		)()()()()				// pad rest of backreferences
+		/g,writeImageTag);
+	*/
+	text = text.replace(/(!\[(.*?)\][ ]?(?:\n[ ]*)?\[(.*?)\])()()()()/g,writeImageTag);
+
+	//
+	// Next, handle inline images:  ![alt text](url "optional title")
+	// Don't forget: encode * and _
+
+	/*
+		text = text.replace(/
+		(						// wrap whole match in $1
+			!\[
+			(.*?)				// alt text = $2
+			\]
+			\s?					// One optional whitespace character
+			\(					// literal paren
+			[ \t]*
+			()					// no id, so leave $3 empty
+			<?(\S+?)>?			// src url = $4
+			[ \t]*
+			(					// $5
+				(['"])			// quote char = $6
+				(.*?)			// title = $7
+				\6				// matching quote
+				[ \t]*
+			)?					// title is optional
+		\)
+		)
+		/g,writeImageTag);
+	*/
+	text = text.replace(/(!\[(.*?)\]\s?\([ \t]*()<?(\S+?)>?[ \t]*((['"])(.*?)\6[ \t]*)?\))/g,writeImageTag);
+
+	return text;
+}
+
+var writeImageTag = function(wholeMatch,m1,m2,m3,m4,m5,m6,m7) {
+	var whole_match = m1;
+	var alt_text   = m2;
+	var link_id	 = m3.toLowerCase();
+	var url		= m4;
+	var title	= m7;
+
+	if (!title) title = "";
+	
+	if (url == "") {
+		if (link_id == "") {
+			// lower-case and turn embedded newlines into spaces
+			link_id = alt_text.toLowerCase().replace(/ ?\n/g," ");
+		}
+		url = "#"+link_id;
+		
+		if (g_urls[link_id] != undefined) {
+			url = g_urls[link_id];
+			if (g_titles[link_id] != undefined) {
+				title = g_titles[link_id];
+			}
+		}
+		else {
+			return whole_match;
+		}
+	}	
+	
+	alt_text = alt_text.replace(/"/g,"&quot;");
+	url = escapeCharacters(url,"*_");
+	var result = "<img src=\"" + url + "\" alt=\"" + alt_text + "\"";
+
+	// attacklab: Markdown.pl adds empty title attributes to images.
+	// Replicate this bug.
+
+	//if (title != "") {
+		title = title.replace(/"/g,"&quot;");
+		title = escapeCharacters(title,"*_");
+		result +=  " title=\"" + title + "\"";
+	//}
+	
+	result += " />";
+	
+	return result;
+}
+
+
+var _DoHeaders = function(text) {
+
+	// Setext-style headers:
+	//	Header 1
+	//	========
+	//  
+	//	Header 2
+	//	--------
+	//
+	text = text.replace(/^(.+)[ \t]*\n=+[ \t]*\n+/gm,
+		function(wholeMatch,m1){return hashBlock("<h1>" + _RunSpanGamut(m1) + "</h1>");});
+
+	text = text.replace(/^(.+)[ \t]*\n-+[ \t]*\n+/gm,
+		function(matchFound,m1){return hashBlock("<h2>" + _RunSpanGamut(m1) + "</h2>");});
+
+	// atx-style headers:
+	//  # Header 1
+	//  ## Header 2
+	//  ## Header 2 with closing hashes ##
+	//  ...
+	//  ###### Header 6
+	//
+
+	/*
+		text = text.replace(/
+			^(\#{1,6})				// $1 = string of #'s
+			[ \t]*
+			(.+?)					// $2 = Header text
+			[ \t]*
+			\#*						// optional closing #'s (not counted)
+			\n+
+		/gm, function() {...});
+	*/
+
+	text = text.replace(/^(\#{1,6})[ \t]*(.+?)[ \t]*\#*\n+/gm,
+		function(wholeMatch,m1,m2) {
+			var h_level = m1.length;
+			return hashBlock("<h" + h_level + ">" + _RunSpanGamut(m2) + "</h" + h_level + ">");
+		});
+
+	return text;
+}
+
+// This declaration keeps Dojo compressor from outputting garbage:
+var _ProcessListItems;
+
+var _DoLists = function(text) {
+//
+// Form HTML ordered (numbered) and unordered (bulleted) lists.
+//
+
+	// attacklab: add sentinel to hack around khtml/safari bug:
+	// http://bugs.webkit.org/show_bug.cgi?id=11231
+	text += "~0";
+
+	// Re-usable pattern to match any entirel ul or ol list:
+
+	/*
+		var whole_list = /
+		(									// $1 = whole list
+			(								// $2
+				[ ]{0,3}					// attacklab: g_tab_width - 1
+				([*+-]|\d+[.])				// $3 = first list item marker
+				[ \t]+
+			)
+			[^\r]+?
+			(								// $4
+				~0							// sentinel for workaround; should be $
+			|
+				\n{2,}
+				(?=\S)
+				(?!							// Negative lookahead for another list item marker
+					[ \t]*
+					(?:[*+-]|\d+[.])[ \t]+
+				)
+			)
+		)/g
+	*/
+	var whole_list = /^(([ ]{0,3}([*+-]|\d+[.])[ \t]+)[^\r]+?(~0|\n{2,}(?=\S)(?![ \t]*(?:[*+-]|\d+[.])[ \t]+)))/gm;
+
+	if (g_list_level) {
+		text = text.replace(whole_list,function(wholeMatch,m1,m2) {
+			var list = m1;
+			var list_type = (m2.search(/[*+-]/g)>-1) ? "ul" : "ol";
+
+			// Turn double returns into triple returns, so that we can make a
+			// paragraph for the last item in a list, if necessary:
+			list = list.replace(/\n{2,}/g,"\n\n\n");;
+			var result = _ProcessListItems(list);
+	
+			// Trim any trailing whitespace, to put the closing `</$list_type>`
+			// up on the preceding line, to get it past the current stupid
+			// HTML block parser. This is a hack to work around the terrible
+			// hack that is the HTML block parser.
+			result = result.replace(/\s+$/,"");
+			result = "<"+list_type+">" + result + "</"+list_type+">\n";
+			return result;
+		});
+	} else {
+		whole_list = /(\n\n|^\n?)(([ ]{0,3}([*+-]|\d+[.])[ \t]+)[^\r]+?(~0|\n{2,}(?=\S)(?![ \t]*(?:[*+-]|\d+[.])[ \t]+)))/g;
+		text = text.replace(whole_list,function(wholeMatch,m1,m2,m3) {
+			var runup = m1;
+			var list = m2;
+
+			var list_type = (m3.search(/[*+-]/g)>-1) ? "ul" : "ol";
+			// Turn double returns into triple returns, so that we can make a
+			// paragraph for the last item in a list, if necessary:
+			var list = list.replace(/\n{2,}/g,"\n\n\n");;
+			var result = _ProcessListItems(list);
+			result = runup + "<"+list_type+">\n" + result + "</"+list_type+">\n";	
+			return result;
+		});
+	}
+
+	// attacklab: strip sentinel
+	text = text.replace(/~0/,"");
+
+	return text;
+}
+
+_ProcessListItems = function(list_str) {
+//
+//  Process the contents of a single ordered or unordered list, splitting it
+//  into individual list items.
+//
+	// The $g_list_level global keeps track of when we're inside a list.
+	// Each time we enter a list, we increment it; when we leave a list,
+	// we decrement. If it's zero, we're not in a list anymore.
+	//
+	// We do this because when we're not inside a list, we want to treat
+	// something like this:
+	//
+	//    I recommend upgrading to version
+	//    8. Oops, now this line is treated
+	//    as a sub-list.
+	//
+	// As a single paragraph, despite the fact that the second line starts
+	// with a digit-period-space sequence.
+	//
+	// Whereas when we're inside a list (or sub-list), that line will be
+	// treated as the start of a sub-list. What a kludge, huh? This is
+	// an aspect of Markdown's syntax that's hard to parse perfectly
+	// without resorting to mind-reading. Perhaps the solution is to
+	// change the syntax rules such that sub-lists must start with a
+	// starting cardinal number; e.g. "1." or "a.".
+
+	g_list_level++;
+
+	// trim trailing blank lines:
+	list_str = list_str.replace(/\n{2,}$/,"\n");
+
+	// attacklab: add sentinel to emulate \z
+	list_str += "~0";
+
+	/*
+		list_str = list_str.replace(/
+			(\n)?							// leading line = $1
+			(^[ \t]*)						// leading whitespace = $2
+			([*+-]|\d+[.]) [ \t]+			// list marker = $3
+			([^\r]+?						// list item text   = $4
+			(\n{1,2}))
+			(?= \n* (~0 | \2 ([*+-]|\d+[.]) [ \t]+))
+		/gm, function(){...});
+	*/
+	list_str = list_str.replace(/(\n)?(^[ \t]*)([*+-]|\d+[.])[ \t]+([^\r]+?(\n{1,2}))(?=\n*(~0|\2([*+-]|\d+[.])[ \t]+))/gm,
+		function(wholeMatch,m1,m2,m3,m4){
+			var item = m4;
+			var leading_line = m1;
+			var leading_space = m2;
+
+			if (leading_line || (item.search(/\n{2,}/)>-1)) {
+				item = _RunBlockGamut(_Outdent(item));
+			}
+			else {
+				// Recursion for sub-lists:
+				item = _DoLists(_Outdent(item));
+				item = item.replace(/\n$/,""); // chomp(item)
+				item = _RunSpanGamut(item);
+			}
+
+			return  "<li>" + item + "</li>\n";
+		}
+	);
+
+	// attacklab: strip sentinel
+	list_str = list_str.replace(/~0/g,"");
+
+	g_list_level--;
+	return list_str;
+}
+
+
+var _DoCodeBlocks = function(text) {
+//
+//  Process Markdown `<pre><code>` blocks.
+//  
+
+	/*
+		text = text.replace(text,
+			/(?:\n\n|^)
+			(								// $1 = the code block -- one or more lines, starting with a space/tab
+				(?:
+					(?:[ ]{4}|\t)			// Lines must start with a tab or a tab-width of spaces - attacklab: g_tab_width
+					.*\n+
+				)+
+			)
+			(\n*[ ]{0,3}[^ \t\n]|(?=~0))	// attacklab: g_tab_width
+		/g,function(){...});
+	*/
+
+	// attacklab: sentinel workarounds for lack of \A and \Z, safari\khtml bug
+	text += "~0";
+	
+	text = text.replace(/(?:\n\n|^)((?:(?:[ ]{4}|\t).*\n+)+)(\n*[ ]{0,3}[^ \t\n]|(?=~0))/g,
+		function(wholeMatch,m1,m2) {
+			var codeblock = m1;
+			var nextChar = m2;
+		
+			codeblock = _EncodeCode( _Outdent(codeblock));
+			codeblock = _Detab(codeblock);
+			codeblock = codeblock.replace(/^\n+/g,""); // trim leading newlines
+			codeblock = codeblock.replace(/\n+$/g,""); // trim trailing whitespace
+
+			codeblock = "<pre><code>" + codeblock + "\n</code></pre>";
+
+			return hashBlock(codeblock) + nextChar;
+		}
+	);
+
+	// attacklab: strip sentinel
+	text = text.replace(/~0/,"");
+
+	return text;
+}
+
+var hashBlock = function(text) {
+	text = text.replace(/(^\n+|\n+$)/g,"");
+	return "\n\n~K" + (g_html_blocks.push(text)-1) + "K\n\n";
+}
+
+
+var _DoCodeSpans = function(text) {
+//
+//   *  Backtick quotes are used for <code></code> spans.
+// 
+//   *  You can use multiple backticks as the delimiters if you want to
+//	 include literal backticks in the code span. So, this input:
+//	 
+//		 Just type ``foo `bar` baz`` at the prompt.
+//	 
+//	   Will translate to:
+//	 
+//		 <p>Just type <code>foo `bar` baz</code> at the prompt.</p>
+//	 
+//	There's no arbitrary limit to the number of backticks you
+//	can use as delimters. If you need three consecutive backticks
+//	in your code, use four for delimiters, etc.
+//
+//  *  You can use spaces to get literal backticks at the edges:
+//	 
+//		 ... type `` `bar` `` ...
+//	 
+//	   Turns to:
+//	 
+//		 ... type <code>`bar`</code> ...
+//
+
+	/*
+		text = text.replace(/
+			(^|[^\\])					// Character before opening ` can't be a backslash
+			(`+)						// $2 = Opening run of `
+			(							// $3 = The code block
+				[^\r]*?
+				[^`]					// attacklab: work around lack of lookbehind
+			)
+			\2							// Matching closer
+			(?!`)
+		/gm, function(){...});
+	*/
+
+	text = text.replace(/(^|[^\\])(`+)([^\r]*?[^`])\2(?!`)/gm,
+		function(wholeMatch,m1,m2,m3,m4) {
+			var c = m3;
+			c = c.replace(/^([ \t]*)/g,"");	// leading whitespace
+			c = c.replace(/[ \t]*$/g,"");	// trailing whitespace
+			c = _EncodeCode(c);
+			return m1+"<code>"+c+"</code>";
+		});
+
+	return text;
+}
+
+
+var _EncodeCode = function(text) {
+//
+// Encode/escape certain characters inside Markdown code runs.
+// The point is that in code, these characters are literals,
+// and lose their special Markdown meanings.
+//
+	// Encode all ampersands; HTML entities are not
+	// entities within a Markdown code span.
+	text = text.replace(/&/g,"&amp;");
+
+	// Do the angle bracket song and dance:
+	text = text.replace(/</g,"&lt;");
+	text = text.replace(/>/g,"&gt;");
+
+	// Now, escape characters that are magic in Markdown:
+	text = escapeCharacters(text,"\*_{}[]\\",false);
+
+// jj the line above breaks this:
+//---
+
+//* Item
+
+//   1. Subitem
+
+//            special char: *
+//---
+
+	return text;
+}
+
+
+var _DoItalicsAndBold = function(text) {
+
+	// <strong> must go first:
+	text = text.replace(/(\*\*|__)(?=\S)([^\r]*?\S[*_]*)\1/g,
+		"<strong>$2</strong>");
+
+	text = text.replace(/(\*|_)(?=\S)([^\r]*?\S)\1/g,
+		"<em>$2</em>");
+
+	return text;
+}
+
+
+var _DoBlockQuotes = function(text) {
+
+	/*
+		text = text.replace(/
+		(								// Wrap whole match in $1
+			(
+				^[ \t]*>[ \t]?			// '>' at the start of a line
+				.+\n					// rest of the first line
+				(.+\n)*					// subsequent consecutive lines
+				\n*						// blanks
+			)+
+		)
+		/gm, function(){...});
+	*/
+
+	text = text.replace(/((^[ \t]*>[ \t]?.+\n(.+\n)*\n*)+)/gm,
+		function(wholeMatch,m1) {
+			var bq = m1;
+
+			// attacklab: hack around Konqueror 3.5.4 bug:
+			// "----------bug".replace(/^-/g,"") == "bug"
+
+			bq = bq.replace(/^[ \t]*>[ \t]?/gm,"~0");	// trim one level of quoting
+
+			// attacklab: clean up hack
+			bq = bq.replace(/~0/g,"");
+
+			bq = bq.replace(/^[ \t]+$/gm,"");		// trim whitespace-only lines
+			bq = _RunBlockGamut(bq);				// recurse
+			
+			bq = bq.replace(/(^|\n)/g,"$1  ");
+			// These leading spaces screw with <pre> content, so we need to fix that:
+			bq = bq.replace(
+					/(\s*<pre>[^\r]+?<\/pre>)/gm,
+				function(wholeMatch,m1) {
+					var pre = m1;
+					// attacklab: hack around Konqueror 3.5.4 bug:
+					pre = pre.replace(/^  /mg,"~0");
+					pre = pre.replace(/~0/g,"");
+					return pre;
+				});
+			
+			return hashBlock("<blockquote>\n" + bq + "\n</blockquote>");
+		});
+	return text;
+}
+
+
+var _FormParagraphs = function(text) {
+//
+//  Params:
+//    $text - string to process with html <p> tags
+//
+
+	// Strip leading and trailing lines:
+	text = text.replace(/^\n+/g,"");
+	text = text.replace(/\n+$/g,"");
+
+	var grafs = text.split(/\n{2,}/g);
+	var grafsOut = new Array();
+
+	//
+	// Wrap <p> tags.
+	//
+	var end = grafs.length;
+	for (var i=0; i<end; i++) {
+		var str = grafs[i];
+
+		// if this is an HTML marker, copy it
+		if (str.search(/~K(\d+)K/g) >= 0) {
+			grafsOut.push(str);
+		}
+		else if (str.search(/\S/) >= 0) {
+			str = _RunSpanGamut(str);
+			str = str.replace(/^([ \t]*)/g,"<p>");
+			str += "</p>"
+			grafsOut.push(str);
+		}
+
+	}
+
+	//
+	// Unhashify HTML blocks
+	//
+	end = grafsOut.length;
+	for (var i=0; i<end; i++) {
+		// if this is a marker for an html block...
+		while (grafsOut[i].search(/~K(\d+)K/) >= 0) {
+			var blockText = g_html_blocks[RegExp.$1];
+			blockText = blockText.replace(/\$/g,"$$$$"); // Escape any dollar signs
+			grafsOut[i] = grafsOut[i].replace(/~K\d+K/,blockText);
+		}
+	}
+
+	return grafsOut.join("\n\n");
+}
+
+
+var _EncodeAmpsAndAngles = function(text) {
+// Smart processing for ampersands and angle brackets that need to be encoded.
+	
+	// Ampersand-encoding based entirely on Nat Irons's Amputator MT plugin:
+	//   http://bumppo.net/projects/amputator/
+	text = text.replace(/&(?!#?[xX]?(?:[0-9a-fA-F]+|\w+);)/g,"&amp;");
+	
+	// Encode naked <'s
+	text = text.replace(/<(?![a-z\/?\$!])/gi,"&lt;");
+	
+	return text;
+}
+
+
+var _EncodeBackslashEscapes = function(text) {
+//
+//   Parameter:  String.
+//   Returns:	The string, with after processing the following backslash
+//			   escape sequences.
+//
+
+	// attacklab: The polite way to do this is with the new
+	// escapeCharacters() function:
+	//
+	// 	text = escapeCharacters(text,"\\",true);
+	// 	text = escapeCharacters(text,"`*_{}[]()>#+-.!",true);
+	//
+	// ...but we're sidestepping its use of the (slow) RegExp constructor
+	// as an optimization for Firefox.  This function gets called a LOT.
+
+	text = text.replace(/\\(\\)/g,escapeCharacters_callback);
+	text = text.replace(/\\([`*_{}\[\]()>#+-.!])/g,escapeCharacters_callback);
+	return text;
+}
+
+
+var _DoAutoLinks = function(text) {
+
+	text = text.replace(/<((https?|ftp|dict):[^'">\s]+)>/gi,"<a href=\"$1\">$1</a>");
+
+	// Email addresses: <address@domain.foo>
+
+	/*
+		text = text.replace(/
+			<
+			(?:mailto:)?
+			(
+				[-.\w]+
+				\@
+				[-a-z0-9]+(\.[-a-z0-9]+)*\.[a-z]+
+			)
+			>
+		/gi, _DoAutoLinks_callback());
+	*/
+	text = text.replace(/<(?:mailto:)?([-.\w]+\@[-a-z0-9]+(\.[-a-z0-9]+)*\.[a-z]+)>/gi,
+		function(wholeMatch,m1) {
+			return _EncodeEmailAddress( _UnescapeSpecialChars(m1) );
+		}
+	);
+
+	return text;
+}
+
+
+var _EncodeEmailAddress = function(addr) {
+//
+//  Input: an email address, e.g. "foo@example.com"
+//
+//  Output: the email address as a mailto link, with each character
+//	of the address encoded as either a decimal or hex entity, in
+//	the hopes of foiling most address harvesting spam bots. E.g.:
+//
+//	<a href="&#x6D;&#97;&#105;&#108;&#x74;&#111;:&#102;&#111;&#111;&#64;&#101;
+//	   x&#x61;&#109;&#x70;&#108;&#x65;&#x2E;&#99;&#111;&#109;">&#102;&#111;&#111;
+//	   &#64;&#101;x&#x61;&#109;&#x70;&#108;&#x65;&#x2E;&#99;&#111;&#109;</a>
+//
+//  Based on a filter by Matthew Wickline, posted to the BBEdit-Talk
+//  mailing list: <http://tinyurl.com/yu7ue>
+//
+
+	// attacklab: why can't javascript speak hex?
+	function char2hex(ch) {
+		var hexDigits = '0123456789ABCDEF';
+		var dec = ch.charCodeAt(0);
+		return(hexDigits.charAt(dec>>4) + hexDigits.charAt(dec&15));
+	}
+
+	var encode = [
+		function(ch){return "&#"+ch.charCodeAt(0)+";";},
+		function(ch){return "&#x"+char2hex(ch)+";";},
+		function(ch){return ch;}
+	];
+
+	addr = "mailto:" + addr;
+
+	addr = addr.replace(/./g, function(ch) {
+		if (ch == "@") {
+		   	// this *must* be encoded. I insist.
+			ch = encode[Math.floor(Math.random()*2)](ch);
+		} else if (ch !=":") {
+			// leave ':' alone (to spot mailto: later)
+			var r = Math.random();
+			// roughly 10% raw, 45% hex, 45% dec
+			ch =  (
+					r > .9  ?	encode[2](ch)   :
+					r > .45 ?	encode[1](ch)   :
+								encode[0](ch)
+				);
+		}
+		return ch;
+	});
+
+	addr = "<a href=\"" + addr + "\">" + addr + "</a>";
+	addr = addr.replace(/">.+:/g,"\">"); // strip the mailto: from the visible part
+
+	return addr;
+}
+
+
+var _UnescapeSpecialChars = function(text) {
+//
+// Swap back in all the special characters we've hidden.
+//
+	text = text.replace(/~E(\d+)E/g,
+		function(wholeMatch,m1) {
+			var charCodeToReplace = parseInt(m1);
+			return String.fromCharCode(charCodeToReplace);
+		}
+	);
+	return text;
+}
+
+
+var _Outdent = function(text) {
+//
+// Remove one level of line-leading tabs or spaces
+//
+
+	// attacklab: hack around Konqueror 3.5.4 bug:
+	// "----------bug".replace(/^-/g,"") == "bug"
+
+	text = text.replace(/^(\t|[ ]{1,4})/gm,"~0"); // attacklab: g_tab_width
+
+	// attacklab: clean up hack
+	text = text.replace(/~0/g,"")
+
+	return text;
+}
+
+var _Detab = function(text) {
+// attacklab: Detab's completely rewritten for speed.
+// In perl we could fix it by anchoring the regexp with \G.
+// In javascript we're less fortunate.
+
+	// expand first n-1 tabs
+	text = text.replace(/\t(?=\t)/g,"    "); // attacklab: g_tab_width
+
+	// replace the nth with two sentinels
+	text = text.replace(/\t/g,"~A~B");
+
+	// use the sentinel to anchor our regex so it doesn't explode
+	text = text.replace(/~B(.+?)~A/g,
+		function(wholeMatch,m1,m2) {
+			var leadingText = m1;
+			var numSpaces = 4 - leadingText.length % 4;  // attacklab: g_tab_width
+
+			// there *must* be a better way to do this:
+			for (var i=0; i<numSpaces; i++) leadingText+=" ";
+
+			return leadingText;
+		}
+	);
+
+	// clean up sentinels
+	text = text.replace(/~A/g,"    ");  // attacklab: g_tab_width
+	text = text.replace(/~B/g,"");
+
+	return text;
+}
+
+
+//
+//  attacklab: Utility functions
+//
+
+
+var escapeCharacters = function(text, charsToEscape, afterBackslash) {
+	// First we have to escape the escape characters so that
+	// we can build a character class out of them
+	var regexString = "([" + charsToEscape.replace(/([\[\]\\])/g,"\\$1") + "])";
+
+	if (afterBackslash) {
+		regexString = "\\\\" + regexString;
+	}
+
+	var regex = new RegExp(regexString,"g");
+	text = text.replace(regex,escapeCharacters_callback);
+
+	return text;
+}
+
+
+var escapeCharacters_callback = function(wholeMatch,m1) {
+	var charCodeToEscape = m1.charCodeAt(0);
+	return "~E"+charCodeToEscape+"E";
+}
+
+} // end of Showdown.converter
+},{}],9:[function(require,module,exports){
+// MIT License:
+//
+// Copyright (c) 2010-2012, Joe Walnes
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+/**
+ * This behaves like a WebSocket in every way, except if it fails to connect,
+ * or it gets disconnected, it will repeatedly poll until it successfully connects
+ * again.
+ *
+ * It is API compatible, so when you have:
+ *   ws = new WebSocket('ws://....');
+ * you can replace with:
+ *   ws = new ReconnectingWebSocket('ws://....');
+ *
+ * The event stream will typically look like:
+ *  onconnecting
+ *  onopen
+ *  onmessage
+ *  onmessage
+ *  onclose // lost connection
+ *  onconnecting
+ *  onopen  // sometime later...
+ *  onmessage
+ *  onmessage
+ *  etc...
+ *
+ * It is API compatible with the standard WebSocket API, apart from the following members:
+ *
+ * - `bufferedAmount`
+ * - `extensions`
+ * - `binaryType`
+ *
+ * Latest version: https://github.com/joewalnes/reconnecting-websocket/
+ * - Joe Walnes
+ *
+ * Syntax
+ * ======
+ * var socket = new ReconnectingWebSocket(url, protocols, options);
+ *
+ * Parameters
+ * ==========
+ * url - The url you are connecting to.
+ * protocols - Optional string or array of protocols.
+ * options - See below
+ *
+ * Options
+ * =======
+ * Options can either be passed upon instantiation or set after instantiation:
+ *
+ * var socket = new ReconnectingWebSocket(url, null, { debug: true, reconnectInterval: 4000 });
+ *
+ * or
+ *
+ * var socket = new ReconnectingWebSocket(url);
+ * socket.debug = true;
+ * socket.reconnectInterval = 4000;
+ *
+ * debug
+ * - Whether this instance should log debug messages. Accepts true or false. Default: false.
+ *
+ * automaticOpen
+ * - Whether or not the websocket should attempt to connect immediately upon instantiation. The socket can be manually opened or closed at any time using ws.open() and ws.close().
+ *
+ * reconnectInterval
+ * - The number of milliseconds to delay before attempting to reconnect. Accepts integer. Default: 1000.
+ *
+ * maxReconnectInterval
+ * - The maximum number of milliseconds to delay a reconnection attempt. Accepts integer. Default: 30000.
+ *
+ * reconnectDecay
+ * - The rate of increase of the reconnect delay. Allows reconnect attempts to back off when problems persist. Accepts integer or float. Default: 1.5.
+ *
+ * timeoutInterval
+ * - The maximum time in milliseconds to wait for a connection to succeed before closing and retrying. Accepts integer. Default: 2000.
+ *
+ */
+(function (global, factory) {
+    if (typeof define === 'function' && define.amd) {
+        define([], factory);
+    } else if (typeof module !== 'undefined' && module.exports){
+        module.exports = factory();
+    } else {
+        global.ReconnectingWebSocket = factory();
+    }
+})(this, function () {
+
+    if (!('WebSocket' in window)) {
+        return;
+    }
+
+    function ReconnectingWebSocket(url, protocols, options) {
+
+        // Default settings
+        var settings = {
+
+            /** Whether this instance should log debug messages. */
+            debug: false,
+
+            /** Whether or not the websocket should attempt to connect immediately upon instantiation. */
+            automaticOpen: true,
+
+            /** The number of milliseconds to delay before attempting to reconnect. */
+            reconnectInterval: 1000,
+            /** The maximum number of milliseconds to delay a reconnection attempt. */
+            maxReconnectInterval: 30000,
+            /** The rate of increase of the reconnect delay. Allows reconnect attempts to back off when problems persist. */
+            reconnectDecay: 1.5,
+
+            /** The maximum time in milliseconds to wait for a connection to succeed before closing and retrying. */
+            timeoutInterval: 2000,
+
+            /** The maximum number of reconnection attempts to make. Unlimited if null. */
+            maxReconnectAttempts: null
+        }
+        if (!options) { options = {}; }
+
+        // Overwrite and define settings with options if they exist.
+        for (var key in settings) {
+            if (typeof options[key] !== 'undefined') {
+                this[key] = options[key];
+            } else {
+                this[key] = settings[key];
+            }
+        }
+
+        // These should be treated as read-only properties
+
+        /** The URL as resolved by the constructor. This is always an absolute URL. Read only. */
+        this.url = url;
+
+        /** The number of attempted reconnects since starting, or the last successful connection. Read only. */
+        this.reconnectAttempts = 0;
+
+        /**
+         * The current state of the connection.
+         * Can be one of: WebSocket.CONNECTING, WebSocket.OPEN, WebSocket.CLOSING, WebSocket.CLOSED
+         * Read only.
+         */
+        this.readyState = WebSocket.CONNECTING;
+
+        /**
+         * A string indicating the name of the sub-protocol the server selected; this will be one of
+         * the strings specified in the protocols parameter when creating the WebSocket object.
+         * Read only.
+         */
+        this.protocol = null;
+
+        // Private state variables
+
+        var self = this;
+        var ws;
+        var forcedClose = false;
+        var timedOut = false;
+        var eventTarget = document.createElement('div');
+
+        // Wire up "on*" properties as event handlers
+
+        eventTarget.addEventListener('open',       function(event) { self.onopen(event); });
+        eventTarget.addEventListener('close',      function(event) { self.onclose(event); });
+        eventTarget.addEventListener('connecting', function(event) { self.onconnecting(event); });
+        eventTarget.addEventListener('message',    function(event) { self.onmessage(event); });
+        eventTarget.addEventListener('error',      function(event) { self.onerror(event); });
+
+        // Expose the API required by EventTarget
+
+        this.addEventListener = eventTarget.addEventListener.bind(eventTarget);
+        this.removeEventListener = eventTarget.removeEventListener.bind(eventTarget);
+        this.dispatchEvent = eventTarget.dispatchEvent.bind(eventTarget);
+
+        /**
+         * This function generates an event that is compatible with standard
+         * compliant browsers and IE9 - IE11
+         *
+         * This will prevent the error:
+         * Object doesn't support this action
+         *
+         * http://stackoverflow.com/questions/19345392/why-arent-my-parameters-getting-passed-through-to-a-dispatched-event/19345563#19345563
+         * @param s String The name that the event should use
+         * @param args Object an optional object that the event will use
+         */
+        function generateEvent(s, args) {
+        	var evt = document.createEvent("CustomEvent");
+        	evt.initCustomEvent(s, false, false, args);
+        	return evt;
+        };
+
+        this.open = function (reconnectAttempt) {
+            ws = new WebSocket(self.url, protocols || []);
+
+            if (reconnectAttempt) {
+                if (this.maxReconnectAttempts && this.reconnectAttempts > this.maxReconnectAttempts) {
+                    return;
+                }
+            } else {
+                eventTarget.dispatchEvent(generateEvent('connecting'));
+                this.reconnectAttempts = 0;
+            }
+
+            if (self.debug || ReconnectingWebSocket.debugAll) {
+                console.debug('ReconnectingWebSocket', 'attempt-connect', self.url);
+            }
+
+            var localWs = ws;
+            var timeout = setTimeout(function() {
+                if (self.debug || ReconnectingWebSocket.debugAll) {
+                    console.debug('ReconnectingWebSocket', 'connection-timeout', self.url);
+                }
+                timedOut = true;
+                localWs.close();
+                timedOut = false;
+            }, self.timeoutInterval);
+
+            ws.onopen = function(event) {
+                clearTimeout(timeout);
+                if (self.debug || ReconnectingWebSocket.debugAll) {
+                    console.debug('ReconnectingWebSocket', 'onopen', self.url);
+                }
+                self.protocol = ws.protocol;
+                self.readyState = WebSocket.OPEN;
+                self.reconnectAttempts = 0;
+                var e = generateEvent('open');
+                e.isReconnect = reconnectAttempt;
+                reconnectAttempt = false;
+                eventTarget.dispatchEvent(e);
+            };
+
+            ws.onclose = function(event) {
+                clearTimeout(timeout);
+                ws = null;
+                if (forcedClose) {
+                    self.readyState = WebSocket.CLOSED;
+                    eventTarget.dispatchEvent(generateEvent('close'));
+                } else {
+                    self.readyState = WebSocket.CONNECTING;
+                    var e = generateEvent('connecting');
+                    e.code = event.code;
+                    e.reason = event.reason;
+                    e.wasClean = event.wasClean;
+                    eventTarget.dispatchEvent(e);
+                    if (!reconnectAttempt && !timedOut) {
+                        if (self.debug || ReconnectingWebSocket.debugAll) {
+                            console.debug('ReconnectingWebSocket', 'onclose', self.url);
+                        }
+                        eventTarget.dispatchEvent(generateEvent('close'));
+                    }
+
+                    var timeout = self.reconnectInterval * Math.pow(self.reconnectDecay, self.reconnectAttempts);
+                    setTimeout(function() {
+                        self.reconnectAttempts++;
+                        self.open(true);
+                    }, timeout > self.maxReconnectInterval ? self.maxReconnectInterval : timeout);
+                }
+            };
+            ws.onmessage = function(event) {
+                if (self.debug || ReconnectingWebSocket.debugAll) {
+                    console.debug('ReconnectingWebSocket', 'onmessage', self.url, event.data);
+                }
+                var e = generateEvent('message');
+                e.data = event.data;
+                eventTarget.dispatchEvent(e);
+            };
+            ws.onerror = function(event) {
+                if (self.debug || ReconnectingWebSocket.debugAll) {
+                    console.debug('ReconnectingWebSocket', 'onerror', self.url, event);
+                }
+                eventTarget.dispatchEvent(generateEvent('error'));
+            };
+        }
+
+        // Whether or not to create a websocket upon instantiation
+        if (this.automaticOpen == true) {
+            this.open(false);
+        }
+
+        /**
+         * Transmits data to the server over the WebSocket connection.
+         *
+         * @param data a text string, ArrayBuffer or Blob to send to the server.
+         */
+        this.send = function(data) {
+            if (ws) {
+                if (self.debug || ReconnectingWebSocket.debugAll) {
+                    console.debug('ReconnectingWebSocket', 'send', self.url, data);
+                }
+                return ws.send(data);
+            } else {
+                throw 'INVALID_STATE_ERR : Pausing to reconnect websocket';
+            }
+        };
+
+        /**
+         * Closes the WebSocket connection or connection attempt, if any.
+         * If the connection is already CLOSED, this method does nothing.
+         */
+        this.close = function(code, reason) {
+            // Default CLOSE_NORMAL code
+            if (typeof code == 'undefined') {
+                code = 1000;
+            }
+            forcedClose = true;
+            if (ws) {
+                ws.close(code, reason);
+            }
+        };
+
+        /**
+         * Additional public API method to refresh the connection if still open (close, re-open).
+         * For example, if the app suspects bad data / missed heart beats, it can try to refresh.
+         */
+        this.refresh = function() {
+            if (ws) {
+                ws.close();
+            }
+        };
+    }
+
+    /**
+     * An event listener to be called when the WebSocket connection's readyState changes to OPEN;
+     * this indicates that the connection is ready to send and receive data.
+     */
+    ReconnectingWebSocket.prototype.onopen = function(event) {};
+    /** An event listener to be called when the WebSocket connection's readyState changes to CLOSED. */
+    ReconnectingWebSocket.prototype.onclose = function(event) {};
+    /** An event listener to be called when a connection begins being attempted. */
+    ReconnectingWebSocket.prototype.onconnecting = function(event) {};
+    /** An event listener to be called when a message is received from the server. */
+    ReconnectingWebSocket.prototype.onmessage = function(event) {};
+    /** An event listener to be called when an error occurs. */
+    ReconnectingWebSocket.prototype.onerror = function(event) {};
+
+    /**
+     * Whether all instances of ReconnectingWebSocket should log debug messages.
+     * Setting this to true is the equivalent of setting all instances of ReconnectingWebSocket.debug to true.
+     */
+    ReconnectingWebSocket.debugAll = false;
+
+    ReconnectingWebSocket.CONNECTING = WebSocket.CONNECTING;
+    ReconnectingWebSocket.OPEN = WebSocket.OPEN;
+    ReconnectingWebSocket.CLOSING = WebSocket.CLOSING;
+    ReconnectingWebSocket.CLOSED = WebSocket.CLOSED;
+
+    return ReconnectingWebSocket;
+});
+
+},{}],10:[function(require,module,exports){
 /*! jQuery UI - v1.11.0pre - 2013-09-27
 * http://jqueryui.com
 * Includes: jquery.ui.core.js, jquery.ui.widget.js, jquery.ui.mouse.js, jquery.ui.draggable.js, jquery.ui.droppable.js, jquery.ui.resizable.js, jquery.ui.selectable.js, jquery.ui.sortable.js, jquery.ui.effect.js, jquery.ui.accordion.js, jquery.ui.autocomplete.js, jquery.ui.button.js, jquery.ui.datepicker.js, jquery.ui.dialog.js, jquery.ui.effect-blind.js, jquery.ui.effect-bounce.js, jquery.ui.effect-clip.js, jquery.ui.effect-drop.js, jquery.ui.effect-explode.js, jquery.ui.effect-fade.js, jquery.ui.effect-fold.js, jquery.ui.effect-highlight.js, jquery.ui.effect-puff.js, jquery.ui.effect-pulsate.js, jquery.ui.effect-scale.js, jquery.ui.effect-shake.js, jquery.ui.effect-size.js, jquery.ui.effect-slide.js, jquery.ui.effect-transfer.js, jquery.ui.menu.js, jquery.ui.position.js, jquery.ui.progressbar.js, jquery.ui.slider.js, jquery.ui.spinner.js, jquery.ui.tabs.js, jquery.ui.tooltip.js
@@ -17023,10 +19105,10 @@ $.widget( "ui.tooltip", {
 
 }( jQuery ) );*/
 
-},{}],8:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 $ = jQuery = require('jquery');
 module.exports = require('./dist/jquery-ui.js');
-},{"./dist/jquery-ui.js":7,"jquery":9}],9:[function(require,module,exports){
+},{"./dist/jquery-ui.js":10,"jquery":12}],12:[function(require,module,exports){
 /*!
  * jQuery JavaScript Library v3.3.1
  * https://jquery.com/
@@ -27391,368 +29473,5 @@ if ( !noGlobal ) {
 
 return jQuery;
 } );
-
-},{}],10:[function(require,module,exports){
-// MIT License:
-//
-// Copyright (c) 2010-2012, Joe Walnes
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
-
-/**
- * This behaves like a WebSocket in every way, except if it fails to connect,
- * or it gets disconnected, it will repeatedly poll until it successfully connects
- * again.
- *
- * It is API compatible, so when you have:
- *   ws = new WebSocket('ws://....');
- * you can replace with:
- *   ws = new ReconnectingWebSocket('ws://....');
- *
- * The event stream will typically look like:
- *  onconnecting
- *  onopen
- *  onmessage
- *  onmessage
- *  onclose // lost connection
- *  onconnecting
- *  onopen  // sometime later...
- *  onmessage
- *  onmessage
- *  etc...
- *
- * It is API compatible with the standard WebSocket API, apart from the following members:
- *
- * - `bufferedAmount`
- * - `extensions`
- * - `binaryType`
- *
- * Latest version: https://github.com/joewalnes/reconnecting-websocket/
- * - Joe Walnes
- *
- * Syntax
- * ======
- * var socket = new ReconnectingWebSocket(url, protocols, options);
- *
- * Parameters
- * ==========
- * url - The url you are connecting to.
- * protocols - Optional string or array of protocols.
- * options - See below
- *
- * Options
- * =======
- * Options can either be passed upon instantiation or set after instantiation:
- *
- * var socket = new ReconnectingWebSocket(url, null, { debug: true, reconnectInterval: 4000 });
- *
- * or
- *
- * var socket = new ReconnectingWebSocket(url);
- * socket.debug = true;
- * socket.reconnectInterval = 4000;
- *
- * debug
- * - Whether this instance should log debug messages. Accepts true or false. Default: false.
- *
- * automaticOpen
- * - Whether or not the websocket should attempt to connect immediately upon instantiation. The socket can be manually opened or closed at any time using ws.open() and ws.close().
- *
- * reconnectInterval
- * - The number of milliseconds to delay before attempting to reconnect. Accepts integer. Default: 1000.
- *
- * maxReconnectInterval
- * - The maximum number of milliseconds to delay a reconnection attempt. Accepts integer. Default: 30000.
- *
- * reconnectDecay
- * - The rate of increase of the reconnect delay. Allows reconnect attempts to back off when problems persist. Accepts integer or float. Default: 1.5.
- *
- * timeoutInterval
- * - The maximum time in milliseconds to wait for a connection to succeed before closing and retrying. Accepts integer. Default: 2000.
- *
- */
-(function (global, factory) {
-    if (typeof define === 'function' && define.amd) {
-        define([], factory);
-    } else if (typeof module !== 'undefined' && module.exports){
-        module.exports = factory();
-    } else {
-        global.ReconnectingWebSocket = factory();
-    }
-})(this, function () {
-
-    if (!('WebSocket' in window)) {
-        return;
-    }
-
-    function ReconnectingWebSocket(url, protocols, options) {
-
-        // Default settings
-        var settings = {
-
-            /** Whether this instance should log debug messages. */
-            debug: false,
-
-            /** Whether or not the websocket should attempt to connect immediately upon instantiation. */
-            automaticOpen: true,
-
-            /** The number of milliseconds to delay before attempting to reconnect. */
-            reconnectInterval: 1000,
-            /** The maximum number of milliseconds to delay a reconnection attempt. */
-            maxReconnectInterval: 30000,
-            /** The rate of increase of the reconnect delay. Allows reconnect attempts to back off when problems persist. */
-            reconnectDecay: 1.5,
-
-            /** The maximum time in milliseconds to wait for a connection to succeed before closing and retrying. */
-            timeoutInterval: 2000,
-
-            /** The maximum number of reconnection attempts to make. Unlimited if null. */
-            maxReconnectAttempts: null
-        }
-        if (!options) { options = {}; }
-
-        // Overwrite and define settings with options if they exist.
-        for (var key in settings) {
-            if (typeof options[key] !== 'undefined') {
-                this[key] = options[key];
-            } else {
-                this[key] = settings[key];
-            }
-        }
-
-        // These should be treated as read-only properties
-
-        /** The URL as resolved by the constructor. This is always an absolute URL. Read only. */
-        this.url = url;
-
-        /** The number of attempted reconnects since starting, or the last successful connection. Read only. */
-        this.reconnectAttempts = 0;
-
-        /**
-         * The current state of the connection.
-         * Can be one of: WebSocket.CONNECTING, WebSocket.OPEN, WebSocket.CLOSING, WebSocket.CLOSED
-         * Read only.
-         */
-        this.readyState = WebSocket.CONNECTING;
-
-        /**
-         * A string indicating the name of the sub-protocol the server selected; this will be one of
-         * the strings specified in the protocols parameter when creating the WebSocket object.
-         * Read only.
-         */
-        this.protocol = null;
-
-        // Private state variables
-
-        var self = this;
-        var ws;
-        var forcedClose = false;
-        var timedOut = false;
-        var eventTarget = document.createElement('div');
-
-        // Wire up "on*" properties as event handlers
-
-        eventTarget.addEventListener('open',       function(event) { self.onopen(event); });
-        eventTarget.addEventListener('close',      function(event) { self.onclose(event); });
-        eventTarget.addEventListener('connecting', function(event) { self.onconnecting(event); });
-        eventTarget.addEventListener('message',    function(event) { self.onmessage(event); });
-        eventTarget.addEventListener('error',      function(event) { self.onerror(event); });
-
-        // Expose the API required by EventTarget
-
-        this.addEventListener = eventTarget.addEventListener.bind(eventTarget);
-        this.removeEventListener = eventTarget.removeEventListener.bind(eventTarget);
-        this.dispatchEvent = eventTarget.dispatchEvent.bind(eventTarget);
-
-        /**
-         * This function generates an event that is compatible with standard
-         * compliant browsers and IE9 - IE11
-         *
-         * This will prevent the error:
-         * Object doesn't support this action
-         *
-         * http://stackoverflow.com/questions/19345392/why-arent-my-parameters-getting-passed-through-to-a-dispatched-event/19345563#19345563
-         * @param s String The name that the event should use
-         * @param args Object an optional object that the event will use
-         */
-        function generateEvent(s, args) {
-        	var evt = document.createEvent("CustomEvent");
-        	evt.initCustomEvent(s, false, false, args);
-        	return evt;
-        };
-
-        this.open = function (reconnectAttempt) {
-            ws = new WebSocket(self.url, protocols || []);
-
-            if (reconnectAttempt) {
-                if (this.maxReconnectAttempts && this.reconnectAttempts > this.maxReconnectAttempts) {
-                    return;
-                }
-            } else {
-                eventTarget.dispatchEvent(generateEvent('connecting'));
-                this.reconnectAttempts = 0;
-            }
-
-            if (self.debug || ReconnectingWebSocket.debugAll) {
-                console.debug('ReconnectingWebSocket', 'attempt-connect', self.url);
-            }
-
-            var localWs = ws;
-            var timeout = setTimeout(function() {
-                if (self.debug || ReconnectingWebSocket.debugAll) {
-                    console.debug('ReconnectingWebSocket', 'connection-timeout', self.url);
-                }
-                timedOut = true;
-                localWs.close();
-                timedOut = false;
-            }, self.timeoutInterval);
-
-            ws.onopen = function(event) {
-                clearTimeout(timeout);
-                if (self.debug || ReconnectingWebSocket.debugAll) {
-                    console.debug('ReconnectingWebSocket', 'onopen', self.url);
-                }
-                self.protocol = ws.protocol;
-                self.readyState = WebSocket.OPEN;
-                self.reconnectAttempts = 0;
-                var e = generateEvent('open');
-                e.isReconnect = reconnectAttempt;
-                reconnectAttempt = false;
-                eventTarget.dispatchEvent(e);
-            };
-
-            ws.onclose = function(event) {
-                clearTimeout(timeout);
-                ws = null;
-                if (forcedClose) {
-                    self.readyState = WebSocket.CLOSED;
-                    eventTarget.dispatchEvent(generateEvent('close'));
-                } else {
-                    self.readyState = WebSocket.CONNECTING;
-                    var e = generateEvent('connecting');
-                    e.code = event.code;
-                    e.reason = event.reason;
-                    e.wasClean = event.wasClean;
-                    eventTarget.dispatchEvent(e);
-                    if (!reconnectAttempt && !timedOut) {
-                        if (self.debug || ReconnectingWebSocket.debugAll) {
-                            console.debug('ReconnectingWebSocket', 'onclose', self.url);
-                        }
-                        eventTarget.dispatchEvent(generateEvent('close'));
-                    }
-
-                    var timeout = self.reconnectInterval * Math.pow(self.reconnectDecay, self.reconnectAttempts);
-                    setTimeout(function() {
-                        self.reconnectAttempts++;
-                        self.open(true);
-                    }, timeout > self.maxReconnectInterval ? self.maxReconnectInterval : timeout);
-                }
-            };
-            ws.onmessage = function(event) {
-                if (self.debug || ReconnectingWebSocket.debugAll) {
-                    console.debug('ReconnectingWebSocket', 'onmessage', self.url, event.data);
-                }
-                var e = generateEvent('message');
-                e.data = event.data;
-                eventTarget.dispatchEvent(e);
-            };
-            ws.onerror = function(event) {
-                if (self.debug || ReconnectingWebSocket.debugAll) {
-                    console.debug('ReconnectingWebSocket', 'onerror', self.url, event);
-                }
-                eventTarget.dispatchEvent(generateEvent('error'));
-            };
-        }
-
-        // Whether or not to create a websocket upon instantiation
-        if (this.automaticOpen == true) {
-            this.open(false);
-        }
-
-        /**
-         * Transmits data to the server over the WebSocket connection.
-         *
-         * @param data a text string, ArrayBuffer or Blob to send to the server.
-         */
-        this.send = function(data) {
-            if (ws) {
-                if (self.debug || ReconnectingWebSocket.debugAll) {
-                    console.debug('ReconnectingWebSocket', 'send', self.url, data);
-                }
-                return ws.send(data);
-            } else {
-                throw 'INVALID_STATE_ERR : Pausing to reconnect websocket';
-            }
-        };
-
-        /**
-         * Closes the WebSocket connection or connection attempt, if any.
-         * If the connection is already CLOSED, this method does nothing.
-         */
-        this.close = function(code, reason) {
-            // Default CLOSE_NORMAL code
-            if (typeof code == 'undefined') {
-                code = 1000;
-            }
-            forcedClose = true;
-            if (ws) {
-                ws.close(code, reason);
-            }
-        };
-
-        /**
-         * Additional public API method to refresh the connection if still open (close, re-open).
-         * For example, if the app suspects bad data / missed heart beats, it can try to refresh.
-         */
-        this.refresh = function() {
-            if (ws) {
-                ws.close();
-            }
-        };
-    }
-
-    /**
-     * An event listener to be called when the WebSocket connection's readyState changes to OPEN;
-     * this indicates that the connection is ready to send and receive data.
-     */
-    ReconnectingWebSocket.prototype.onopen = function(event) {};
-    /** An event listener to be called when the WebSocket connection's readyState changes to CLOSED. */
-    ReconnectingWebSocket.prototype.onclose = function(event) {};
-    /** An event listener to be called when a connection begins being attempted. */
-    ReconnectingWebSocket.prototype.onconnecting = function(event) {};
-    /** An event listener to be called when a message is received from the server. */
-    ReconnectingWebSocket.prototype.onmessage = function(event) {};
-    /** An event listener to be called when an error occurs. */
-    ReconnectingWebSocket.prototype.onerror = function(event) {};
-
-    /**
-     * Whether all instances of ReconnectingWebSocket should log debug messages.
-     * Setting this to true is the equivalent of setting all instances of ReconnectingWebSocket.debug to true.
-     */
-    ReconnectingWebSocket.debugAll = false;
-
-    ReconnectingWebSocket.CONNECTING = WebSocket.CONNECTING;
-    ReconnectingWebSocket.OPEN = WebSocket.OPEN;
-    ReconnectingWebSocket.CLOSING = WebSocket.CLOSING;
-    ReconnectingWebSocket.CLOSED = WebSocket.CLOSED;
-
-    return ReconnectingWebSocket;
-});
 
 },{}]},{},[1]);
